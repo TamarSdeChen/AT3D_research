@@ -469,6 +469,11 @@ def perspective_projection(wavelength, fov, x_resolution, y_resolution,
     y = np.full(npix, position[1], dtype=np.float32)
     z = np.full(npix, position[2], dtype=np.float32)
 
+    # CLOUDCT, Calculate camera projection:
+    G = np.hstack([rotation_matrix.T, -rotation_matrix.T @ position.reshape(3, 1)])
+    projection_matrix = k @ G
+    # ------------------------------------------
+
     image_shape = [nx,ny]
     sensor = make_sensor_dataset(x.ravel(), y.ravel(), z.ravel(),
                                  mu.ravel(), phi.ravel(), stokes, wavelength)
@@ -490,8 +495,8 @@ def perspective_projection(wavelength, fov, x_resolution, y_resolution,
         'position': position,
         'lookat': lookat,
         'rotation_matrix': rotation_matrix.ravel(),
-        'sensor_to_camera_transform_matrix':k.ravel()
-
+        'projection_matrix': projection_matrix.ravel(),
+        'sensor_to_camera_transform_matrix': k.ravel()
     }
 
     if sub_pixel_ray_args['method'] is not None:
