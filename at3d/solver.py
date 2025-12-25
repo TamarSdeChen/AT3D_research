@@ -1684,7 +1684,7 @@ class RTE:
                                            np.zeros(atmosphere.gas_absorption.shape)),
                                 'table_index': (['num_micro', 'x', 'y', 'z'],
                                                 np.zeros((1,)+atmosphere.gas_absorption.shape,
-                                                dtype=np.int)),
+                                                dtype=np.int32)),
                                 'phase_weights': (['num_micro', 'x', 'y', 'z'],
                                                 np.ones((1,)+atmosphere.gas_absorption.shape,
                                                 dtype=np.float32)),

@@ -20,17 +20,18 @@ from itertools import repeat
 from CloudCTUtils import *
 from CloudCT_NoiseUtils import *
 import matplotlib
+import yaml
 # matplotlib.use('TkAgg')
 
 # constants
 r_earth = 6371.0  # km
 origin, xaxis, yaxis, zaxis = [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]
 
-def main(run_params, clouds_path):
+def main(clouds_path, config_path="configs/params_cloudct.yaml"):
+    run_params = load_run_params(params_path=config_path)
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
-    # cloud_ids = sample(cloud_ids,50)
-    # cloud_ids = [str(ind) for ind in np.arange(8001, 11908)]
+
     all_cloud_paths = ['/'.join(clouds_path.split('/')[:-1]) + '/cloud' + str(cloud_id) + '.txt' for cloud_id in cloud_ids]
     clouds_params = [dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)]) for cloud_path in all_cloud_paths]
     clouds = [(str(cloud_id), cloud_params) for cloud_id, cloud_params in zip(cloud_ids, clouds_params)]
@@ -168,7 +169,7 @@ def run_simulation(args):
     # note we could set solver dependent surfaces / sources / numerical_config here
     # just as we have got solver dependent optical properties.
     if run_params['IS_SUN_CONST']:
-        sun_augs_num = 1
+        sun_location_num = 1
         sun_azimuth_list = [run_params['const_sun_azimuth']]
         sun_zenith_list = [run_params['const_sun_zenith']]
         lat_list = [-999]
@@ -176,13 +177,13 @@ def run_simulation(args):
         utc_time_list = [0]
         print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(run_params['const_sun_azimuth'], run_params['const_sun_zenith']))
     else:
-        sun_augs_num = run_params['num_of_sun_augs']
+        sun_location_num = run_params['num_of_sun_locations']
         sun_azimuth_list = []
         sun_zenith_list = []
         lat_list = []
         long_list = []
         utc_time_list = []
-        for _ in range(sun_augs_num):
+        for _ in range(sun_location_num):
             if run_params['use_sunsync_file']:
                 assert (90 < run_params['zenith_thr'] < 180)
                 sun_azimuth, sun_zenith, utc_time, lat, long, sat_dir_angle = (
@@ -227,8 +228,8 @@ def run_simulation(args):
              'cloudbow_sample_angles': []
              }
 
-    for aug_num, sun_zenith, sun_azimuth in zip(range(sun_augs_num), sun_zenith_list, sun_azimuth_list):
-        print('beginning solving RTE for sun aug #{}/{}'.format(aug_num+1,sun_augs_num))
+    for location_idx, sun_zenith, sun_azimuth in zip(range(sun_location_num), sun_zenith_list, sun_azimuth_list):
+        print('beginning solving RTE for sun aug #{}/{}'.format(location_idx+1,sun_location_num))
         for wavelength in mean_wavelengths:
             medium = {
                 'cloud': optical_properties[wavelength],
@@ -479,7 +480,7 @@ def run_simulation(args):
                         "Problem in satellites counting."
 
                 except Exception as e:
-                    print(f'FAILED TO SIMULATE {cloud_name}, sun aug #{aug_num}, {e}')
+                    print(f'FAILED TO SIMULATE {cloud_name}, sun aug #{location_idx}, {e}')
                     return
             else:  #no cloudbow scan
                 cloudbow_sample_angles = None
@@ -768,68 +769,22 @@ def plot_cloud_images(images):
     # mlab.show()
     print('done plotting')
 
+def load_run_params(params_path):
+    # Load run parameters
+    params_file_path = params_path
+    with open(params_file_path, 'r') as f:
+        run_params = yaml.full_load(f)
+
+    return run_params
+
 
 if __name__ == '__main__':
-    run_params = {'IF_AIRMSPI': False,
-                  'IF_NEW_TXT': False,
-                  'n_jobs': 1,
-                  'maxiter': 150,
-                  'stokes': ['I', 'Q', 'U'],
-                  'max_simultaneous_simulations': 1, #how many clouds runing in parallel in
-                  'IS_SUN_CONST': 0,
-                  'cancel_noise': False
-                  }
-    if run_params['IF_AIRMSPI']:
-        run_params['wavelengths'] = [[0.660, 0.660]]
-        run_params['radiance_thresholds'] = [0.028, 0.025, 0.025, 0.025, 0.024, 0.023, 0.022, 0.024, 0.025]
-        run_params['images_path_for_nn'] = \
-            '/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/AIRMSPI_SIMULATIONS_AT3D/'
-        run_params['Lat_for_sun_angles'] = 32  # degrees
-        run_params['const_sun_azimuth'] = 36.56
-        run_params['const_sun_zenith'] = 154.74
-    else:
-        run_params['SATS_NUMBER'] = 10
-        run_params['wavelengths'] = [[0.600, 0.700]]
-        run_params['radiance_thresholds'] = run_params['SATS_NUMBER']*[0.0255]
-        run_params['images_path_for_nn'] = \
-            '/wdata/tamarsd/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/'
-            #"/wdata_visl/inbalkom/NN_Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/CloudCT_SIMULATIONS_AT3D/"
-        # '/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/spacecarvetest/'
-        run_params['Lat_for_sun_angles'] = -999 #-10  # According to what Vadim sent me
-        run_params['use_sunsync_file'] = True
-        run_params['sunsync_file_path'] = "/wdata_visl/inbalkom/NN_Data/sunsync_satellite_EROSB_sun_angles_and_sat_dir.pkl"
-        run_params['zenith_thr'] = 100
-        run_params['num_of_sun_augs'] = 5
-        run_params['Rsat'] = 500  # km
-        run_params['GSD'] = 0.02  # in km, it is the ground spatial resolution.
-        run_params['const_sun_azimuth'] = 45.93
-        run_params['const_sun_zenith'] = 160.64
-        run_params['cloudbow_additional_scan'] = 0
-        run_params['cloudbow_range'] = [135,150]  # cloudbow_range - list of two elements - the cloudbow range in degrees.
-        run_params['tune_scalar'] = 1.5
-        run_params['temperature'] = 288.15  # 15 degrees Celcius
-
-        imager_id_0 = {
-            'Number': 10,  # number of imagers of the same type.
-            'Imager_params_Path': '/wdata/inbalkom/AT3D_CloudCT_shared_files/CloudCT_configs/Imager_params.yaml',
-            'true_indices': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],  # where imagers are located on the string of pearls setup
-            'rays_per_pixel': 1,
-            'rigid_sampling': True,
-            'cloudbow_additional_scan': 10,  # Number off additional view in the cloud-bow range.
-            'radiance_thresholds': 0.02
-            # Need only for Space Curving. Threshold is either a scalar or a list of length of measurements.
-        }
-
-        run_params['Imagers'] = {'imager_id_0': imager_id_0}
-        run_params['uncertainty_options'] = {
-            'use_cal_uncertainty': False,
-            'use_bias': True,
-            'use_gain': False,
-            'max_bias': 5,
-            'max_gain': 5
-        }
+    # Load configuration from YAML file
+    # Change this path to use either params_cloudct.yaml or params_airmspi.yaml
+    config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml"  # Default to CloudCT config
+    run_params = load_run_params(params_path=config_path)
     clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-        #"/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
-        #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-    # main(run_params, clouds_path)
+
+    
+    #main(clouds_path, config_path)
     simple_main(run_params, clouds_path)

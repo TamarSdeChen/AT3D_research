@@ -1,0 +1,47 @@
+# CloudCT Configuration
+# Base parameters
+IF_AIRMSPI: False
+IF_NEW_TXT: False
+n_jobs: 1
+maxiter: 150
+stokes: ['I', 'Q', 'U']
+max_simultaneous_simulations: 1  # how many clouds running in parallel
+IS_SUN_CONST: 1
+cancel_noise: False
+
+# CloudCT-specific parameters
+SATS_NUMBER: 10
+wavelengths: [[0.600, 0.700]]
+radiance_thresholds: [0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255]  # SATS_NUMBER * [0.0255]
+images_path_for_nn: '/wdata/tamarsd/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/'
+Lat_for_sun_angles: -999  # According to what Vadim sent me
+use_sunsync_file: True
+sunsync_file_path: "/wdata_visl/inbalkom/NN_Data/sunsync_satellite_EROSB_sun_angles_and_sat_dir.pkl"
+zenith_thr: 100
+num_of_sun_locations: 5
+Rsat: 500  # km
+GSD: 0.02  # in km, it is the ground spatial resolution
+const_sun_azimuth: 45.93
+const_sun_zenith: 160.64
+cloudbow_additional_scan: 0
+cloudbow_range: [135, 150]  # cloudbow_range - list of two elements - the cloudbow range in degrees
+tune_scalar: 1.5
+temperature: 288.15  # 15 degrees Celsius
+
+Imagers:
+  imager_id_0:
+    Number: 10  # number of imagers of the same type
+    Imager_params_Path: '/wdata/inbalkom/AT3D_CloudCT_shared_files/CloudCT_configs/Imager_params.yaml'
+    true_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]  # where imagers are located on the string of pearls setup
+    rays_per_pixel: 1
+    rigid_sampling: True
+    cloudbow_additional_scan: 10  # Number of additional view in the cloud-bow range
+    radiance_thresholds: 0.02  # Need only for Space Carving. Threshold is either a scalar or a list of length of measurements
+
+uncertainty_options:
+  use_cal_uncertainty: False
+  use_bias: True
+  use_gain: False
+  max_bias: 5
+  max_gain: 5
+

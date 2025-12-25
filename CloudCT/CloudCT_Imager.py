@@ -92,7 +92,13 @@ certaine footprint, then, calcalate which folac length and diameter of the lens 
 """
 def float_round(x):
     """Round a float or np.float32 to a 3 digits float"""
-    if type(x) == np.float32:
+    if isinstance(x, np.ndarray):
+        # Handle numpy arrays: convert to scalar if 0-d, or take first element
+        if x.ndim == 0:
+            x = x.item()
+        else:
+            x = x.flat[0].item()
+    elif type(x) == np.float32:
         x = x.item()
     return round(x, 3)
 
@@ -1142,7 +1148,7 @@ class Imager(object):
                                               self._dark_noise_table['noise [electrons/sec]'].values)
             DN_interpol = DN(self._temp)
             self._DARK_NOISE = float_round(
-                np.isscalar(DN_interpol))  # it is better then just self._sensor._DARK_CURRENT_NOISE
+                DN_interpol)  # it is better then just self._sensor._DARK_CURRENT_NOISE
             # Since imager temperature may be differena then sensor's.
         else:
             print('There is no DARK_NOISE definition since ethier imager temperatur or dark noise table are missing.')
@@ -1318,8 +1324,8 @@ class Imager(object):
                                           self._dark_noise_table['noise [electrons/sec]'].values)
         DN_interpol = DN(val)
         self._temp = val
-        self._DARK_NOISE = float_round(
-            self._sensor._DARK_CURRENT_NOISE))  # it is better then just self._sensor._DARK_CURRENT_NOISE
+        self._DARK_NOISE = float_round(self._sensor._DARK_CURRENT_NOISE) 
+        # it is better then just self._sensor._DARK_CURRENT_NOISE
         # Since imager temperature may be different then sensor's.
 
     def set_Imager_altitude(self, H):
@@ -1594,7 +1600,7 @@ class Imager(object):
             scale=DARK_NOISE_variance ** 0.5,
             # The scale parameter controls the standard deviation of the normal distribution.
             size=electrons_number.shape
-        ).astype(np.int)
+        ).astype(np.int32)
 
         electrons_number += DN_noise
 
@@ -1607,12 +1613,12 @@ class Imager(object):
             scale=READ_NOISE_variance ** 0.5,
             # The scale parameter controls the standard deviation of the normal distribution.
             size=electrons_number.shape
-        ).astype(np.int)
+        ).astype(np.int32)
 
         electrons_number += READ_noise
 
         electrons_number = np.clip(electrons_number, a_min=0, a_max=None)
-        return electrons_number.astype(np.float)
+        return electrons_number.astype(np.float32)
 
     def convert_radiance_to_graylevel(self, image, C=0.9, cancel_noise=False, limit_integral_in_lambda_range_nm=None):
         """
@@ -1710,7 +1716,7 @@ class Imager(object):
             # For a sensor having a linear radiometric response, the conversion between pixel electrons to grayscale is by a fixed ratio self._alpha
             # Quantisize and cut overflow values.
             if not cancel_noise:
-                gray_scale = np.round(gray_scale).astype(np.int)
+                gray_scale = np.round(gray_scale).astype(np.int32)
                 gray_scale = np.clip(gray_scale, a_min=0, a_max=gray_level_bound)
 
             gray_scales.append(gray_scale)

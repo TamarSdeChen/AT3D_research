@@ -8,9 +8,9 @@ class SortTest(TestCase):
     def setUpClass(cls):
         np.random.seed(3)
 
-        x = np.random.uniform(low=0.0,high=100.0, size=2000).astype(np.int)
+        x = np.random.uniform(low=0.0,high=100.0, size=2000).astype(np.int32)
         y = np.random.uniform(low=0.0,high=100.0, size=2000).astype(np.float32)
-        yi = np.random.uniform(low=0.0, high=100.0, size=2000).astype(np.int)
+        yi = np.random.uniform(low=0.0, high=100.0, size=2000).astype(np.int32)
 
         x_sorted,y_sorted, yi_sorted = at3d.core.quicksort_new(x=copy.deepcopy(x),y=copy.deepcopy(y),
                                                        yi=copy.deepcopy(yi),
