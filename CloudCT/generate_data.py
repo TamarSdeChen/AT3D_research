@@ -65,7 +65,7 @@ def run_simulation(args):
         if run_params['IS_SUN_CONST'] == 0:
             path_stamp = 'varying_sun_lambertian_surface'
         else:
-            path_stamp = 'const_sun_lambertian_surface'
+            path_stamp = 'const_sun_random_rotation'
         filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
                                 'cloud_results_' + cloud_name + '.pkl')
 
@@ -225,7 +225,8 @@ def run_simulation(args):
              'cameras_P': [],
              'grid': [],
              'not_cloudbow_startind': [],
-             'cloudbow_sample_angles': []
+             'cloudbow_sample_angles': [],
+             'rotation_angle_deg': []
              }
 
     for location_idx, sun_zenith, sun_azimuth in zip(range(sun_location_num), sun_zenith_list, sun_azimuth_list):
@@ -385,9 +386,9 @@ def run_simulation(args):
             zgrid = np.float32(cloud_scatterer.z.data)
             grid = np.array([xgrid, ygrid, zgrid], dtype=object)
 
-            dx = cloud_scatterer.delx.item()
-            dy = cloud_scatterer.dely.item()
-            dz = round(np.diff(zgrid)[0], 5)
+            dx = cloud_scatterer.delx.item() # res of each grid cell in x direction
+            dy = cloud_scatterer.dely.item() # res of each grid cell in y direction
+            dz = round(np.diff(zgrid)[0], 5) # res of each grid cell in z direction
             nx, ny, nz = cloud_scatterer.dims['x'], cloud_scatterer.dims['y'], cloud_scatterer.dims['z']
 
             PIXEL_FOOTPRINT = GSD  # km
@@ -428,69 +429,62 @@ def run_simulation(args):
             print(20 * "-")
             print(20 * "-")
 
-            sat_positions, near_nadir_view_index, theta_max, theta_min = \
-                StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
-                               orbit_altitude=Rsat,
-                               move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-                               move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
+            # sat_positions, near_nadir_view_index, theta_max, theta_min = \
+            #     StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
+            #                    orbit_altitude=Rsat,
+            #                    move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+            #                    move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
 
-            names = ["sat" + str(i + 1) for i in range(len(sat_positions))]
+            # Perturbation limits in km
+            DX_LIMIT = 30.0  
+            DY_LIMIT = 30.0
+            DZ_LIMIT = 30.0
 
-            if cloudbow_additional_scan>0:
-                print(f"CloudCT has {cloudbow_additional_scan} samples in the cloudbow range.")
-
-                if np.all(np.all(SAT_LOOKATS, axis=0)):
-                    cloudbow_lookat = SAT_LOOKATS[0, :]
-                else:
-                    # if the lookats are different, just calculate the mean lookat.
-                    cloudbow_lookat = np.mean(SAT_LOOKATS, axis=0)
-
-                """
-                INBAL TODO - monitor cloudbow_sample_angles, not_cloudbow_startind
-                """
-                try:
-                    cloud_bow_sat_positions, cloudbow_sample_angles, not_cloudbow_startind = \
-                        StringOfPearlsCloudBowScan(Rsat,
-                                                   cloudbow_lookat,
-                                                   cloudbow_additional_scan,
-                                                   run_params['cloudbow_range'],
-                                                   theta_max, theta_min,
-                                                   sun_zenith, sun_azimuth,
-                                                   move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-                                                   move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1]
-                                                   )
-
-                    # what is the scan_imager_index?
-
-                    distances = sat_positions - cloud_bow_sat_positions[0]
-                    distances = np.linalg.norm(distances, axis=1)
-                    scan_imager_index = np.argmin(distances)
-                    # update positions, lookats and names:
-                    sat_positions = np.append(sat_positions, cloud_bow_sat_positions, axis=0)
-                    cloudbow_lookat = np.tile(cloudbow_lookat, (cloudbow_additional_scan, 1))
-                    SAT_LOOKATS = np.append(SAT_LOOKATS, cloudbow_lookat, axis=0)
-
-                    for i in range(cloudbow_additional_scan):
-                        names.append(names[scan_imager_index] + '_s{}'.format(i + 1))
-                    names[scan_imager_index] = names[scan_imager_index] + '_s{}'.format(0)
-
-                    assert sat_positions.shape[1] == 3, "Problem in satellites positions."
-                    assert SAT_LOOKATS.shape[1] == 3, "Problem in satellites pointing."
-                    assert len(names) == (cloudbow_additional_scan + SATS_NUMBER_SETUP), \
-                        "Problem in satellites counting."
-
-                except Exception as e:
-                    print(f'FAILED TO SIMULATE {cloud_name}, sun aug #{location_idx}, {e}')
-                    return
-            else:  #no cloudbow scan
-                cloudbow_sample_angles = None
-                not_cloudbow_startind = None
-
+            sat_positions, near_nadir_indices, theta_max, theta_min = \
+                CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
+                                            ORBIT_ALTITUDE=Rsat,
+                                            move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+                                            move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1],
+                                            DX=DX_LIMIT, DY=DY_LIMIT, DZ=DZ_LIMIT,
+                                            N=1) 
 
             # we intentionally, work with projections lists.
-            up_list = np.array(len(sat_positions) * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
+            up_list = np.array(sat_positions.shape[1] * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
+            
+            # Apply rotation if specified
+            if 'rotation_angle_deg' in run_params and run_params['rotation_angle_deg'] is not None:
+                # Store original positions for visualization
+                sat_positions_before = sat_positions.copy()
+                
+                # Randomly sample rotation angle from 0 to 360 degrees
+                rotation_angle_deg = np.random.uniform(0, 360)
+                
+                ROT_TOTAL, ROT_Z = setup_rotation_matrices(rotation_angle_deg, LOOKAT)
+                sat_positions_rotated, up_list_rotated = apply_rotation_to_sensor_positions(
+                    sat_positions, ROT_TOTAL, ROT_Z, up_list
+                )
+                # Update sat_positions to use rotated positions (maintain shape (1, N, 3))
+                sat_positions = sat_positions_rotated.reshape(1, -1, 3)
+                up_list = up_list_rotated
+                
+                # Visualize rotation
+                vis_save_path = os.path.join('/wdata/tamarsd/AT3D_research/CloudCT/figures/rotation_vs_original', 
+                                            f'rotation_visualization_cloud_{cloud_name}.png')
+                # visualize_rotation(sat_positions_before, sat_positions, LOOKAT, 
+                #                  rotation_angle_deg, 
+                #                  title_suffix=f' - Cloud {cloud_name}',
+                #                  save_path=vis_save_path)
+            else:
+                rotation_angle_deg = None
+
+            names = ["sat" + str(i + 1) for i in range(sat_positions.shape[1])]
+            
+            #no cloudbow scan here
+            cloudbow_sample_angles = None
+            not_cloudbow_startind = None
+            
             for mean_wavelength in mean_wavelengths:
-                for position_vector, lookat_vector, up_vector in zip(sat_positions,
+                for position_vector, lookat_vector, up_vector in zip(sat_positions[0],
                                                                            SAT_LOOKATS, up_list):
                     loop_sensor = at3d.sensor.perspective_projection(wavelength=mean_wavelength, fov=fov,
                                                                      x_resolution=cnx, y_resolution=cny,
@@ -506,16 +500,8 @@ def run_simulation(args):
             # Next part will be the rendering, when the RTE solver is prepared (below).
             # get the measurements
             sensor_dict.get_measurements(solvers_dict, n_jobs=run_params['n_jobs'], verbose=True)
-            show_results(sensor_dict)
+            # show_results(sensor_dict)
             print('Done getting CloudCT''s measurments')
-
-
-
-            # ----------------------------------------------------
-
-            # if 1:
-            #     plot_cloud_images(images0)
-            #     a = 5
 
             if not run_params['cancel_noise']:
                 sensor_dict_clean = copy.deepcopy(sensor_dict)
@@ -633,6 +619,7 @@ def run_simulation(args):
             cloud['grid'].append(grid)
             cloud['not_cloudbow_startind'].append(not_cloudbow_startind)
             cloud['cloudbow_sample_angles'].append(cloudbow_sample_angles)
+            cloud['rotation_angle_deg'].append(rotation_angle_deg)
 
     cloud['images'] = np.array(cloud['images'])
     cloud['images_scatter'] = np.array(cloud['images_scatter'])
@@ -647,6 +634,7 @@ def run_simulation(args):
     cloud['grid'] = np.array(cloud['grid'])
     cloud['not_cloudbow_startind'] = np.array(cloud['not_cloudbow_startind'])
     cloud['cloudbow_sample_angles'] = np.array(cloud['cloudbow_sample_angles'])
+    cloud['rotation_angle_deg'] = np.array(cloud['rotation_angle_deg'])
 
 
     if not os.path.exists(os.path.join(run_params['images_path_for_nn'], path_stamp)):
@@ -725,6 +713,15 @@ def process_Rois_projections(projections, mean_x, mean_y, stokes, wavelengths, f
 
 
 def plot_cloud_images(images):
+    from datetime import datetime
+    
+    # Create output directory
+    output_dir = '/wdata/tamarsd/AT3D_research/CloudCT/figures/results_clouds'
+    safe_mkdirs(output_dir)
+    
+    # Generate timestamp for filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     # ------------------
     # I:
     fig, axarr = plt.subplots(3, 3, figsize=(20, 20))
@@ -737,6 +734,13 @@ def plot_cloud_images(images):
         cax = divider.append_axes("right", size="5%", pad=0.01)
         plt.colorbar(im, cax=cax)
     fig.suptitle('I', size=16, y=0.95)
+    
+    # Save I figure
+    filename = f"cloud_images_I_{timestamp}.png"
+    filepath = os.path.join(output_dir, filename)
+    plt.savefig(filepath, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Figure saved to: {filepath}")
 
     # ------------------
     # Q:
@@ -750,6 +754,13 @@ def plot_cloud_images(images):
         cax = divider.append_axes("right", size="5%", pad=0.01)
         plt.colorbar(im, cax=cax)
     fig.suptitle('Q', size=16, y=0.95)
+    
+    # Save Q figure
+    filename = f"cloud_images_Q_{timestamp}.png"
+    filepath = os.path.join(output_dir, filename)
+    plt.savefig(filepath, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Figure saved to: {filepath}")
 
     # ------------------
     # U:
@@ -763,10 +774,15 @@ def plot_cloud_images(images):
         cax = divider.append_axes("right", size="5%", pad=0.01)
         plt.colorbar(im, cax=cax)
     fig.suptitle('U', size=16, y=0.95)
+    
+    # Save U figure
+    filename = f"cloud_images_U_{timestamp}.png"
+    filepath = os.path.join(output_dir, filename)
+    plt.savefig(filepath, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Figure saved to: {filepath}")
 
     # --------------------
-    plt.show()
-    # mlab.show()
     print('done plotting')
 
 def load_run_params(params_path):
@@ -786,5 +802,5 @@ if __name__ == '__main__':
     clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
 
     
-    #main(clouds_path, config_path)
-    simple_main(run_params, clouds_path)
+    main(clouds_path, config_path)
+    #simple_main(run_params, clouds_path)

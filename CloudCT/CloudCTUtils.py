@@ -372,10 +372,132 @@ def StringOfPearls(SATS_NUMBER=10, orbit_altitude=500, widest_view=False, move_n
     return sat_positions.T, near_nadir_view_index, theta_max, theta_min
 
 
+def visualize_satellite_positions(sat_positions_before, sat_positions_after, title_suffix="", save_path=None):
+    """
+    Visualize satellite positions before and after perturbation.
+    
+    Parameters:
+    -----------
+    sat_positions_before : np.ndarray
+        Satellite positions before perturbation, shape (SATS_NUMBER, 3) or (N, SATS_NUMBER, 3)
+    sat_positions_after : np.ndarray
+        Satellite positions after perturbation, shape (SATS_NUMBER, 3) or (N, SATS_NUMBER, 3)
+    title_suffix : str, optional
+        Additional text to add to the plot title
+    save_path : str, optional
+        Path to save the figure. If None, saves as 'satellite_positions_before_after.png' in current directory
+    """
+    from mpl_toolkits.mplot3d import Axes3D
+    
+    # Handle different input shapes
+    if len(sat_positions_before.shape) == 3:
+        # If shape is (N, SATS_NUMBER, 3), use first augmentation
+        sat_pos_before = sat_positions_before[0, :, :]
+        sat_pos_after = sat_positions_after[0, :, :]
+    else:
+        sat_pos_before = sat_positions_before
+        sat_pos_after = sat_positions_after
+    
+    fig = plt.figure(figsize=(14, 6))
+    ax1 = fig.add_subplot(121, projection='3d')
+    ax2 = fig.add_subplot(122, projection='3d')
+    
+    # Calculate data ranges to set equal aspect ratios
+    all_positions = np.vstack([sat_pos_before, sat_pos_after])
+    x_range = all_positions[:, 0].max() - all_positions[:, 0].min()
+    y_range = all_positions[:, 1].max() - all_positions[:, 1].min()
+    z_range = all_positions[:, 2].max() - all_positions[:, 2].min()
+    max_range = max(x_range, y_range, z_range)
+    
+    # Calculate centers for each axis
+    x_center = (all_positions[:, 0].max() + all_positions[:, 0].min()) / 2
+    y_center = (all_positions[:, 1].max() + all_positions[:, 1].min()) / 2
+    z_center = (all_positions[:, 2].max() + all_positions[:, 2].min()) / 2
+    
+    # Set equal limits for both plots
+    x_lim = [x_center - max_range/2, x_center + max_range/2]
+    y_lim = [y_center - max_range/2, y_center + max_range/2]
+    z_lim = [z_center - max_range/2, z_center + max_range/2]
+    
+    # Arrow spans the full Z-axis range
+    arrow_start_z = z_lim[0]
+    arrow_end_z = z_lim[1]
+    arrow_length = arrow_end_z - arrow_start_z
+    
+    # Plot before perturbation
+    ax1.scatter(sat_pos_before[:, 0], sat_pos_before[:, 1], sat_pos_before[:, 2], 
+                c='blue', marker='o', s=100, label='Before perturbation', alpha=0.7)
+    # Draw lines connecting satellites
+    ax1.plot(sat_pos_before[:, 0], sat_pos_before[:, 1], sat_pos_before[:, 2], 
+             'b--', alpha=0.3, linewidth=1)
+    # Add Z-axis arrow (up direction) - spans full Z range
+    ax1.quiver(x_center, y_center, arrow_start_z, 0, 0, arrow_length,
+               color='green', arrow_length_ratio=0.3, linewidth=2, alpha=0.8)
+    ax1.text(x_center, y_center, arrow_end_z + arrow_length*0.05, 'Z (up)', 
+             color='green', fontsize=10, fontweight='bold')
+    ax1.set_xlabel('X (km)', fontsize=10)
+    ax1.set_ylabel('Y (km)', fontsize=10)
+    ax1.set_zlabel('Z (km)', fontsize=10)
+    ax1.set_title(f'Satellite Positions BEFORE Perturbation{title_suffix}', fontsize=12)
+    ax1.set_xlim(x_lim)
+    ax1.set_ylim(y_lim)
+    ax1.set_zlim(z_lim)
+    ax1.set_box_aspect([1, 1, 1])  # Equal aspect ratio for all axes
+    ax1.legend()
+    ax1.grid(True)
+    
+    # Plot after perturbation
+    ax2.scatter(sat_pos_after[:, 0], sat_pos_after[:, 1], sat_pos_after[:, 2], 
+                c='red', marker='^', s=100, label='After perturbation', alpha=0.7)
+    # Draw lines connecting satellites
+    ax2.plot(sat_pos_after[:, 0], sat_pos_after[:, 1], sat_pos_after[:, 2], 
+             'r--', alpha=0.3, linewidth=1)
+    # Add Z-axis arrow (up direction) - spans full Z range
+    ax2.quiver(x_center, y_center, arrow_start_z, 0, 0, arrow_length,
+               color='green', arrow_length_ratio=0.3, linewidth=2, alpha=0.8)
+    ax2.text(x_center, y_center, arrow_end_z + arrow_length*0.05, 'Z (up)', 
+             color='green', fontsize=10, fontweight='bold')
+    ax2.set_xlabel('X (km)', fontsize=10)
+    ax2.set_ylabel('Y (km)', fontsize=10)
+    ax2.set_zlabel('Z (km)', fontsize=10)
+    ax2.set_title(f'Satellite Positions AFTER Perturbation{title_suffix}', fontsize=12)
+    ax2.set_xlim(x_lim)
+    ax2.set_ylim(y_lim)
+    ax2.set_zlim(z_lim)
+    ax2.set_box_aspect([1, 1, 1])  # Equal aspect ratio for all axes
+    ax2.legend()
+    ax2.grid(True)
+    
+    plt.tight_layout()
+    
+    # Save figure instead of showing
+    from datetime import datetime
+    
+    if save_path is None:
+        save_path = 'satellite_positions_before_after.png'
+    
+    # Add timestamp to filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path_parts = os.path.splitext(save_path)
+    save_path_with_timestamp = f"{path_parts[0]}_{timestamp}{path_parts[1]}"
+    
+    # Create directory if it doesn't exist
+    save_dir = os.path.dirname(save_path_with_timestamp)
+    if save_dir and not os.path.exists(save_dir):
+        safe_mkdirs(save_dir)
+    
+    plt.savefig(save_path_with_timestamp, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Figure saved to: {save_path_with_timestamp}")
+
+
 def CreateVaryingStringOfPearls(SATS_NUMBER=10, ORBIT_ALTITUDE=500, move_nadir_x=0, move_nadir_y=0, DX=0, DY=0, DZ=0, N=1):
     """
-    Create the Multiview setup on orbit direct them with lookat vector and set the Imagers at thier locations + orientations.
-    The output here will be a list of Imagers. Each Imager will be updated here with respect to the defined geomtric considerations.
+    Create the Multiview Setup on orbit.
+    Perturb the Satellites positions within the given limits and direct them with LOOKAT vector
+    Set the Imagers at thier Locations + Orientations.
+    The output here will be a list of Imagers.
+    Each Imager will be updated here with respect to the defined geomtric considerations.
 
 
     Parameters:
@@ -400,20 +522,28 @@ def CreateVaryingStringOfPearls(SATS_NUMBER=10, ORBIT_ALTITUDE=500, move_nadir_x
     dx = np.random.uniform(low=-DX, high=DX, size=(N,SATS_NUMBER))
     dy = np.random.uniform(low=-DY, high=DY, size=(N,SATS_NUMBER))
     dz = np.random.uniform(low=-DZ, high=DZ, size=(N,SATS_NUMBER))
+    
+    # Store positions before perturbation for visualization
+    sat_positions_before = sat_positions.copy()
+    
     sat_positions[:, :, 0] += dx
     sat_positions[:, :, 1] += dy
     sat_positions[:, :, 2] += dz
+    
+    # Visualize satellite positions before and after perturbation
+    # visualize_satellite_positions(sat_positions_before, sat_positions, save_path=f"/wdata/tamarsd/AT3D_research/CloudCT/figures/noise_vs_clean_pos/satellite_positions_before_after.png")
+    
     X_config = np.squeeze(sat_positions[:, :, 0])
     Y_config = np.squeeze(sat_positions[:, :, 1])
     Z_config = np.squeeze(sat_positions[:, :, 2])
 
     # find near nadir view:
     # since in this setup (sat_y-lookat_y)=0:
-    near_nadir_view_indices = np.argmin(np.abs(X_config), axis=1)
+    near_nadir_view_indices = np.argmin(np.abs(X_config))
 
     # find theta angles for cloudbow
     satellites_theta_angles = np.rad2deg(np.arctan(X_config / (Z_config+r_earth)))
-    theta_max, theta_min = np.max(satellites_theta_angles, axis=1), np.min(satellites_theta_angles, axis=1)
+    theta_max, theta_min = np.max(satellites_theta_angles), np.min(satellites_theta_angles)
 
     return sat_positions, near_nadir_view_indices, theta_max, theta_min
 
@@ -771,204 +901,20 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
     return interpreted_sat_positions.T, result_phis, not_cloudbow_startind
 
 
-# ---------------------------------------------------
-# ---------------------------------------------------
-# ---------------------------------------------------
 
-# def apply_platform_noise(in_sensor, sigma):
-#     """
-#     TODO: add noisy in the position in the future.
-#
-#     Meanwhile it adds only orientation noise.
-#
-#     Parameters:
-#     ------------
-#     in_sensor: xr.Dataset
-#         A dataset containing all of the information required to define a sensor
-#         for which synthetic measurements can be simulated;
-#         positions and angles of all pixels, sub-pixel rays and their associated weights,
-#         and the sensor's observables. It is the input sensor. The output is out_sensor.
-#
-#
-#     sigma: float
-#         Orientation noise amplitude (std) in degrees.
-#         The ralative angles roll , pitch, yaw will be sampled depending on sigma.
-#
-#
-#     Returns
-#     -------
-#     out_sensor : xr.Dataset
-#         An output dataset containing all of the information required to define a sensor
-#         for which synthetic measurements can be simulated;
-#         positions and angles of all pixels, sub-pixel rays and their associated weights,
-#         and the sensor's observables.
-#     """
-#     assert 'Perspective' == in_sensor.attrs['projection'], "This method fits only Perspective projection."
-#
-#     # Sample relative rotation angles:
-#     roll  =  np.deg2rad( np.random.normal(0, sigma, 1) )
-#     pitch =  np.deg2rad( np.random.normal(0, sigma, 1) )
-#     yaw =  np.deg2rad(0)
-#
-#     Rx = transf.rotation_matrix(roll, xaxis)
-#     Ry = transf.rotation_matrix(pitch, yaxis)
-#     Rz = transf.rotation_matrix(yaw, zaxis)
-#     R = transf.concatenate_matrices(Rx, Ry, Rz)# order: Rz then Ry then Rx, e.g. np.dot(Rz[0:3,0:3],np.dot(Rx[0:3,0:3],Ry[0:3,0:3]))
-#     # R is a relative rotation.
-#
-#     image_shape = in_sensor['image_shape']
-#
-#     """
-#     in_sensor is of class xarray.core.dataset.Dataset.
-#     Inside it, there are many xarray.DataArray s.
-#     Like:
-#     in_sensor.cam_x is an xarray.DataArray (in_sensor.cam_x.variable <xarray.Variable (npixels: 10000)> is array([1., ..., 1.]) )
-#     in_sensor.image_shape is an xarray.DataArray
-#     But, the in_sensor.cam_x  has Dimensions without coordinates: npixels. There are 10000 npixels, e.g. 10000 values.
-#     You can not index a pixel in cam_x rather than just use the index of a pixel.
-#     In the in_sensor.image_shape, the Coordinates  are regulat (image_dims) <U2 'nx' 'ny'.
-#     Good reference to read about terminology is here https://docs.xarray.dev/en/stable/user-guide/terminology.html
-#
-#
-#     in_sensor.coords
-#     Coordinates:
-#     * stokes_index  (stokes_index) <U1 'I' 'Q' 'U' 'V'
-#     * image_dims    (image_dims) <U2 'nx' 'ny'
-#
-#     Variables:
-#     wavelength
-#     stokes
-#     cam_x
-#     cam_y
-#     cam_z
-#     cam_mu
-#     cam_phi
-#     image_shape
-#     ray_mu
-#     ray_phi
-#     ray_x
-#     ray_y
-#     ray_z
-#     pixel_index
-#     ray_weight
-#
-#     """
-#     out_sensor = in_sensor.copy(deep=True)
-#
-#
-#
-#     #load old parameteres:
-#     old_lookat = in_sensor.attrs['lookat']
-#     old_position = in_sensor.attrs['position']
-#     old_direction = old_lookat - old_position
-#     old_direction = norm(old_direction)
-#
-#     old_rotation_matrix = in_sensor.attrs['rotation_matrix'].reshape(3,3)
-#     old_k = in_sensor.attrs['sensor_to_camera_transform_matrix'].reshape(3,3) # sensor_to_camera_transform_matrix
-#
-#     old_cam_dir_x =  np.dot(old_rotation_matrix,xaxis)
-#     old_cam_dir_y =  np.dot(old_rotation_matrix,yaxis)
-#     old_cam_dir_z =  np.dot(old_rotation_matrix,zaxis)
-#     assert np.allclose(old_cam_dir_z,old_direction), "The vectors must be similar, chack the input."
-#
-#     # TODO, change out_sensor.attrs['position']
-#     # TODO, change out_sensor.attrs['lookat']
-#     # TODO, change out_sensor.attrs['rotation_matrix']
-#     # TODO, change out_sensor.attrs['projection_matrix']
-#     # TODO, change out_sensor.attrs['sensor_to_camera_transform_matrix']
-#
-#     """
-#     ADD THE NOISE:
-#
-#     """
-#     out_sensor.attrs['is_ideal_pointing'] = False
-#     new_cam_dir_z =  np.dot(R[0:3,0:3],old_cam_dir_z)
-#     report_angle_deviation = np.rad2deg( np.arccos( np.dot(new_cam_dir_z,old_cam_dir_z) ) )
-#     print('The angle deviation form ideal pointing is {}[deg]'.format(report_angle_deviation))
-#     # ----------------------------
-#     #new_dir_z =  np.dot(R[0:3,0:3],zaxis)
-#     #A_t = rad2deg*np.arccos(np.dot(zaxis,new_dir_z))
-#     #assert A_t <= A , "Problem in pointing noise generation."
-#     # ---------------------------------
-#
-#
-#     old_pointing_vector = self.get_pointing_vector()  # for test porpuses
-#     Ronly = self._T[0:3,0:3] # rotation
-#     cam_dir_x =  np.dot(Ronly,xaxis)
-#     cam_dir_y =  np.dot(Ronly,yaxis)
-#     cam_dir_z =  np.dot(Ronly,zaxis)
-#
-#     Rx = transf.rotation_matrix(roll, cam_dir_x)
-#     Ry = transf.rotation_matrix(pitch, cam_dir_y)
-#     Rz = transf.rotation_matrix(yaw, cam_dir_z)
-#     R_rel = transf.concatenate_matrices(Rx, Ry, Rz)# order: Ry then Rx
-#
-#     """Vadim implemented random noise in x,y directions independently.
-#     Maybe the right nose model is different. Vadim should coordinate it with Alex.
-#     some references:
-#     1. https://github.com/ethz-asl/kalibr/wiki/IMU-Noise-Model
-#     """
-#     r = np.identity(4)
-#     r[0:3,0:3] = self._T[0:3,0:3]
-#     r_before_noise = r
-#
-#     r = np.dot(R_rel,r)
-#
-#     # only for test:
-#     r_t = np.dot(R_rel.T,r)
-#     test_dist = np.linalg.norm(r_before_noise  - r_t)
-#     assert test_dist<1e-6 , "Problem with the noise apllied to the rotation matrix"
-#
-#     self._T[0:3,0:3] = r[0:3,0:3] # update the rotation with the noisy one, back to GT ratoadion do r = np.dot(self._rel_noisy.T,r)
-#
-#     NewUp = np.dot(R_rel[0:3,0:3],self._up)# update the up with the noisy one, back to GT (?)
-#     # I had it befor but it is a bug, NewUp = np.dot(r[0:3,0:3],self._up)
-#
-#     NewOpticalDirection = np.dot(r[0:3,0:3],np.array(zaxis)) # cameras z axis.
-#     # fined new lookAt point:
-#     pinhole_point = self._T[0:3,3]
-#
-#     # intersection of a line with the ground surface (flat):
-#     """p_co, p_no: define the plane:
-#         p_co is a point on the plane (plane coordinate).
-#         p_no is a normal vector defining the plane direction.
-#         """
-#     p_co = np.array([0,0,0])
-#     p_no = np.array([0,0,1])
-#     epsilon = 1e-6
-#     u = NewOpticalDirection
-#     Q = np.dot(p_no, u)
-#
-#
-#
-#     if abs(Q) > epsilon:
-#         d = np.dot((p_co - pinhole_point),p_no)/Q
-#         Newlookat = pinhole_point + (d*u)
-#
-#     else:
-#         raise Exception("Can't find look at vector")
-#
-#
-#     self._rel_noisy = R_rel
-#     self._lookat = Newlookat
-#     self._up = NewUp
-#     self._was_noise_applied = True
-#
-#     # make another test:
-#     new_pointing_vector = NewOpticalDirection
-#     test_dist = np.linalg.norm(A_t  - rad2deg*np.arccos(np.dot(new_pointing_vector,old_pointing_vector)))
-#     assert test_dist<1e-6 , "Problem accured in the when noise was applyed to pointing."
-#     #print("Pointing error: {}[deg] error was simulated.".format(A_t))
-#     ##R = np.dot(self._rel_noisy[0:3,0:3].T,self._T[0:3,0:3]) # rotation
-#     ##test_dist = np.linalg.norm(r_before_noise  - R)
-#     ##print(test_dist)
-#
-#
-#     print(direction)
 
 
 def show_results(sensor_dict):
     # see images:
+    from datetime import datetime
+    
+    # Create output directory
+    output_dir = '/wdata/tamarsd/AT3D_research/CloudCT/figures/results_clouds'
+    safe_mkdirs(output_dir)
+    
+    # Generate timestamp for filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     for instrument in sensor_dict:
         sensor_images = sensor_dict.get_images(instrument)
 
@@ -1023,8 +969,13 @@ def show_results(sensor_dict):
                 ax.set_axis_off()
 
             fig.suptitle("{}: channel {}".format(instrument, pol_channel), size=16, y=0.95)
-
-    plt.show()
+            
+            # Save figure with timestamp
+            filename = f"{instrument}_{pol_channel}_{timestamp}.png"
+            filepath = os.path.join(output_dir, filename)
+            plt.savefig(filepath, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            print(f"Figure saved to: {filepath}")
 
     print('done')
 
@@ -1331,6 +1282,228 @@ def calc_image_in_scattering_plane_vectorbase(sensor, sensor_image, sensor_name,
     scatter_image = scatter_image.reshape([3]+list(resolution), order='C')
     assert np.allclose(scatter_image[0], stokes[:,:,0]), "Bad calculation of scattering plane."
     return scatter_image
+
+
+def setup_rotation_matrices(theta_deg, lookat):
+    """
+    Setup rotation matrices for Z-axis rotation around a pivot point.
+    
+    Parameters:
+    -----------
+    theta_deg : float
+        Rotation angle in degrees
+    lookat : array-like, shape (3,)
+        Pivot point [x, y, z] around which to rotate
+        
+    Returns:
+    --------
+    ROT_TOTAL : numpy.ndarray, shape (4, 4)
+        Combined transformation matrix (translate-rotate-translate back)
+    ROT_Z : numpy.ndarray, shape (4, 4)
+        Rotation matrix around Z-axis
+    """
+    theta_rad = np.deg2rad(theta_deg)
+    
+    # 1. Translation to origin
+    T_inv = np.array([
+        [1, 0, 0, -lookat[0]], 
+        [0, 1, 0, -lookat[1]], 
+        [0, 0, 1, -lookat[2]], 
+        [0, 0, 0, 1]
+    ])
+    
+    # 2. Rotation matrix around Z
+    cos_t, sin_t = np.cos(theta_rad), np.sin(theta_rad)
+    ROT_Z = np.array([
+        [cos_t, -sin_t, 0, 0], 
+        [sin_t, cos_t, 0, 0], 
+        [0, 0, 1, 0], 
+        [0, 0, 0, 1]
+    ])
+    
+    # 3. Translation back to cloud center
+    T = np.array([
+        [1, 0, 0, lookat[0]], 
+        [0, 1, 0, lookat[1]], 
+        [0, 0, 1, lookat[2]], 
+        [0, 0, 0, 1]
+    ])
+    
+    ROT_TOTAL = T @ ROT_Z @ T_inv
+    
+    return ROT_TOTAL, ROT_Z
+
+
+def apply_rotation_to_sensor_positions(sat_positions, ROT_TOTAL, ROT_Z, up_list):
+    """
+    Apply rotation transformation to satellite positions and up vectors.
+    
+    Parameters:
+    -----------
+    sat_positions : numpy.ndarray, shape (N, 3) or (1, N, 3)
+        Original satellite positions
+    ROT_TOTAL : numpy.ndarray, shape (4, 4)
+        Combined transformation matrix
+    ROT_Z : numpy.ndarray, shape (4, 4)
+        Rotation matrix around Z-axis
+    up_list : numpy.ndarray, shape (N, 3)
+        Original up vectors
+        
+    Returns:
+    --------
+    transformed_positions : numpy.ndarray, shape (N, 3)
+        Rotated satellite positions
+    transformed_up_vectors : numpy.ndarray, shape (N, 3)
+        Rotated up vectors
+    """
+    # Handle both (N, 3) and (1, N, 3) shapes
+    if sat_positions.ndim == 3:
+        positions = sat_positions[0]
+    else:
+        positions = sat_positions
+    
+    transformed_positions = []
+    transformed_up_vectors = []
+    
+    for position, up_vector in zip(positions, up_list):
+        # Transform position
+        new_position = np.dot(ROT_TOTAL, np.append(position, 1))
+        transformed_positions.append(new_position[0:3])
+        
+        # Transform up vector
+        new_up_vector = np.dot(ROT_Z[0:3, 0:3], up_vector)
+        transformed_up_vectors.append(new_up_vector)
+    
+    return np.array(transformed_positions), np.array(transformed_up_vectors)
+
+
+def visualize_rotation(sat_positions_before, sat_positions_after, lookat, rotation_angle_deg, 
+                       title_suffix="", save_path=None):
+    """
+    Visualize satellite positions before and after rotation around Z-axis.
+    
+    Parameters:
+    -----------
+    sat_positions_before : np.ndarray
+        Satellite positions before rotation, shape (SATS_NUMBER, 3) or (1, SATS_NUMBER, 3)
+    sat_positions_after : np.ndarray
+        Satellite positions after rotation, shape (SATS_NUMBER, 3) or (1, SATS_NUMBER, 3)
+    lookat : array-like, shape (3,)
+        Pivot point [x, y, z] around which rotation occurs
+    rotation_angle_deg : float
+        Rotation angle in degrees
+    title_suffix : str, optional
+        Additional text to add to the plot title
+    save_path : str, optional
+        Path to save the figure. If None, saves as 'satellite_positions_rotation.png' in current directory
+    """
+    from mpl_toolkits.mplot3d import Axes3D
+    
+    # Handle different input shapes
+    if len(sat_positions_before.shape) == 3:
+        # If shape is (N, SATS_NUMBER, 3), use first augmentation
+        sat_pos_before = sat_positions_before[0, :, :]
+        sat_pos_after = sat_positions_after[0, :, :]
+    else:
+        sat_pos_before = sat_positions_before
+        sat_pos_after = sat_positions_after
+    
+    lookat = np.array(lookat)
+    
+    fig = plt.figure(figsize=(14, 6))
+    ax1 = fig.add_subplot(121, projection='3d')
+    ax2 = fig.add_subplot(122, projection='3d')
+    
+    # Calculate data ranges to set equal aspect ratios
+    all_positions = np.vstack([sat_pos_before, sat_pos_after, lookat.reshape(1, -1)])
+    x_range = all_positions[:, 0].max() - all_positions[:, 0].min()
+    y_range = all_positions[:, 1].max() - all_positions[:, 1].min()
+    z_range = all_positions[:, 2].max() - all_positions[:, 2].min()
+    max_range = max(x_range, y_range, z_range)
+    
+    # Calculate centers for each axis
+    x_center = (all_positions[:, 0].max() + all_positions[:, 0].min()) / 2
+    y_center = (all_positions[:, 1].max() + all_positions[:, 1].min()) / 2
+    z_center = (all_positions[:, 2].max() + all_positions[:, 2].min()) / 2
+    
+    # Set equal limits for both plots
+    x_lim = [x_center - max_range/2, x_center + max_range/2]
+    y_lim = [y_center - max_range/2, y_center + max_range/2]
+    z_lim = [z_center - max_range/2, z_center + max_range/2]
+    
+    # Plot before rotation
+    ax1.scatter(sat_pos_before[:, 0], sat_pos_before[:, 1], sat_pos_before[:, 2], 
+                c='red', marker='o', s=100, label='Original', alpha=0.7)
+    # Draw lines connecting satellites
+    ax1.plot(sat_pos_before[:, 0], sat_pos_before[:, 1], sat_pos_before[:, 2], 
+             'r--', alpha=0.3, linewidth=1)
+    # Plot lookat point (pivot)
+    ax1.scatter(lookat[0], lookat[1], lookat[2], 
+                c='green', marker='*', s=200, label='Cloud Center (Pivot)', alpha=0.9)
+    # Draw lines from satellites to lookat point
+    for i in range(len(sat_pos_before)):
+        ax1.plot([sat_pos_before[i, 0], lookat[0]], 
+                 [sat_pos_before[i, 1], lookat[1]], 
+                 [sat_pos_before[i, 2], lookat[2]], 
+                 'r--', alpha=0.2, linewidth=0.5)
+    ax1.set_xlabel('X [km]', fontsize=10)
+    ax1.set_ylabel('Y [km]', fontsize=10)
+    ax1.set_zlabel('Z [km]', fontsize=10)
+    ax1.set_title(f'Original Positions{title_suffix}', fontsize=12)
+    ax1.set_xlim(x_lim)
+    ax1.set_ylim(y_lim)
+    ax1.set_zlim(z_lim)
+    ax1.set_box_aspect([1, 1, 1])  # Equal aspect ratio for all axes
+    ax1.legend()
+    ax1.grid(True)
+    
+    # Plot after rotation
+    ax2.scatter(sat_pos_after[:, 0], sat_pos_after[:, 1], sat_pos_after[:, 2], 
+                c='blue', marker='^', s=100, label=f'Rotated {rotation_angle_deg}°', alpha=0.7)
+    # Draw lines connecting satellites
+    ax2.plot(sat_pos_after[:, 0], sat_pos_after[:, 1], sat_pos_after[:, 2], 
+             'b--', alpha=0.3, linewidth=1)
+    # Plot lookat point (pivot)
+    ax2.scatter(lookat[0], lookat[1], lookat[2], 
+                c='green', marker='*', s=200, label='Cloud Center (Pivot)', alpha=0.9)
+    # Draw lines from satellites to lookat point
+    for i in range(len(sat_pos_after)):
+        ax2.plot([sat_pos_after[i, 0], lookat[0]], 
+                 [sat_pos_after[i, 1], lookat[1]], 
+                 [sat_pos_after[i, 2], lookat[2]], 
+                 'b--', alpha=0.2, linewidth=0.5)
+    ax2.set_xlabel('X [km]', fontsize=10)
+    ax2.set_ylabel('Y [km]', fontsize=10)
+    ax2.set_zlabel('Z [km]', fontsize=10)
+    ax2.set_title(f'Rotated Positions ({rotation_angle_deg}° around Z-axis){title_suffix}', fontsize=12)
+    ax2.set_xlim(x_lim)
+    ax2.set_ylim(y_lim)
+    ax2.set_zlim(z_lim)
+    ax2.set_box_aspect([1, 1, 1])  # Equal aspect ratio for all axes
+    ax2.legend()
+    ax2.grid(True)
+    
+    plt.tight_layout()
+    
+    # Save figure instead of showing
+    from datetime import datetime
+    
+    if save_path is None:
+        save_path = 'satellite_positions_rotation.png'
+    
+    # Add timestamp to filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path_parts = os.path.splitext(save_path)
+    save_path_with_timestamp = f"{path_parts[0]}_{timestamp}{path_parts[1]}"
+    
+    # Create directory if it doesn't exist
+    save_dir = os.path.dirname(save_path_with_timestamp)
+    if save_dir and not os.path.exists(save_dir):
+        safe_mkdirs(save_dir)
+    
+    plt.savefig(save_path_with_timestamp, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Rotation visualization saved to: {save_path_with_timestamp}")
 
 
 def main():

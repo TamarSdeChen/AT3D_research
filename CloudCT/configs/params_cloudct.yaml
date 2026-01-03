@@ -2,7 +2,7 @@
 # Base parameters
 IF_AIRMSPI: False
 IF_NEW_TXT: False
-n_jobs: 1
+n_jobs: 4
 maxiter: 150
 stokes: ['I', 'Q', 'U']
 max_simultaneous_simulations: 1  # how many clouds running in parallel
@@ -26,6 +26,7 @@ const_sun_zenith: 160.64
 cloudbow_additional_scan: 0
 cloudbow_range: [135, 150]  # cloudbow_range - list of two elements - the cloudbow range in degrees
 tune_scalar: 1.5
+rotation_angle_deg: 90  # Rotation angle in degrees around Z-axis (null = no rotation)
 temperature: 288.15  # 15 degrees Celsius
 
 Imagers:
