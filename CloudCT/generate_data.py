@@ -452,7 +452,7 @@ def run_simulation(args):
             up_list = np.array(sat_positions.shape[1] * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
             
             # Apply rotation if specified
-            if 'rotation_angle_deg' in run_params and run_params['rotation_angle_deg'] is not None:
+            if run_params['apply_rotation']:
                 # Store original positions for visualization
                 sat_positions_before = sat_positions.copy()
                 
@@ -742,45 +742,9 @@ def plot_cloud_images(images):
     plt.close(fig)
     print(f"Figure saved to: {filepath}")
 
-    # ------------------
-    # Q:
-    fig, axarr = plt.subplots(3, 3, figsize=(20, 20))
-    fig.subplots_adjust(hspace=0.2, wspace=0.2)
-    axarr = axarr.flatten()
-    for ax, image in zip(axarr, images):
-        image = np.squeeze(image.copy())
-        im = ax.imshow(image[1, ...], cmap='gray')
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.01)
-        plt.colorbar(im, cax=cax)
-    fig.suptitle('Q', size=16, y=0.95)
+  
     
-    # Save Q figure
-    filename = f"cloud_images_Q_{timestamp}.png"
-    filepath = os.path.join(output_dir, filename)
-    plt.savefig(filepath, dpi=150, bbox_inches='tight')
-    plt.close(fig)
-    print(f"Figure saved to: {filepath}")
-
-    # ------------------
-    # U:
-    fig, axarr = plt.subplots(3, 3, figsize=(20, 20))
-    fig.subplots_adjust(hspace=0.2, wspace=0.2)
-    axarr = axarr.flatten()
-    for ax, image in zip(axarr, images):
-        image = np.squeeze(image.copy())
-        im = ax.imshow(image[2, ...], cmap='gray')
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.01)
-        plt.colorbar(im, cax=cax)
-    fig.suptitle('U', size=16, y=0.95)
     
-    # Save U figure
-    filename = f"cloud_images_U_{timestamp}.png"
-    filepath = os.path.join(output_dir, filename)
-    plt.savefig(filepath, dpi=150, bbox_inches='tight')
-    plt.close(fig)
-    print(f"Figure saved to: {filepath}")
 
     # --------------------
     print('done plotting')

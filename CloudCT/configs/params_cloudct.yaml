@@ -26,6 +26,7 @@ const_sun_zenith: 160.64
 cloudbow_additional_scan: 0
 cloudbow_range: [135, 150]  # cloudbow_range - list of two elements - the cloudbow range in degrees
 tune_scalar: 1.5
+apply_rotation: True
 rotation_angle_deg: 90  # Rotation angle in degrees around Z-axis (null = no rotation)
 temperature: 288.15  # 15 degrees Celsius
 
