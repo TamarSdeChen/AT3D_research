@@ -973,9 +973,9 @@ def show_results(sensor_dict):
             # Save figure with timestamp
             filename = f"{instrument}_{pol_channel}_{timestamp}.png"
             filepath = os.path.join(output_dir, filename)
-            plt.savefig(filepath, dpi=150, bbox_inches='tight')
-            plt.close(fig)
-            print(f"Figure saved to: {filepath}")
+            #plt.savefig(filepath, dpi=150, bbox_inches='tight')
+            #plt.close(fig)
+            #print(f"Figure saved to: {filepath}")
 
     print('done')
 

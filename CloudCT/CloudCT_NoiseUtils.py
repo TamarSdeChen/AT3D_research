@@ -807,6 +807,91 @@ def update_images_in_sensor_dict(images_per_sensor, sensor_dict):
             sensor_dict_out[instrument]['sensor_list'][sensor_index]['U'].data = curr_image[2].flatten(order='F')
     return sensor_dict_out
 
+def add_noise_to_images(run_params, sensor_dict, sun_zenith, sat_names, cnx, cny):
+    assert len(run_params['stokes']) == 1, f"The stokes number MUST be 1 and not {len(run_params['stokes'])}"
+    num_stokes = len(run_params['stokes'])
+    N_channels = len(run_params['wavelengths'])
+    Rsat = run_params['Rsat']
+    GSD = run_params['GSD']
+    cancel_noise = run_params['cancel_noise']
+    radiances_per_imager = np.array(create_images_list(sensor_dict, run_params['stokes'], sat_names))
+    # radiances_per_imager is just a list of images instead of sensor_dict.
+    if (num_stokes == 1):
+        imagers, use_stokes, stokes_weights, wavelength_averaging = setup_imagers(run_params, sun_zenith)
+        gain_std_percents, global_bias_std_percents, forward_dir_uncertainty_addition = get_uncertainties(
+            run_params['uncertainty_options'])
+        for imager_id, imager in imagers.items():
+            # Update the resolution of each Imager with respect to this simulation pixels number [nx,ny]
+            # (from run params + view tuning). In addition, we update Imager's FOV.
+            imager.update_sensor_size_with_number_of_pixels(cnx, cny)
+            imager.set_gain_uncertainty(gain_std_percents)
+            imager.set_bias_uncertainty(global_bias_std_percents)
+        # setup imagers list. right now applies for only one imager/instrument type.
+        imagers_list = [copy.deepcopy(imagers['imager_id_0']) for _ in np.arange(len(sat_names))]
+
+        # Like sony polarized sensor.
+        # -------------------------------------------------------------
+        # --------------- apply noise here: ---------------------------
+        # The noise is added here during the conversion between
+        # normalized radiance to grayscale.
+        # -------------------------------------------------------------
+        # old issue - source_imager.adjust_exposure_time(Intensities) # consider this since it is important to not
+        # be in saturation or in low snr levels.
+
+        
+        N_views = len(radiances_per_imager)
+        assert N_views == len(
+            sat_names), "Something went wrong in the passage of the simulated stokes vector through simulated polarizers."
+
+        """
+        Remainder - here we per imager loop.
+        The loop over all imagers channels is inside the conversion method.
+        We should do the loops over different views.
+        The method convert_radiance_to_graylevel does the following:
+        1. converts photons to electrons.
+        2. add global bias (uncertainty) to the signal in electrons level.
+        3. add noises: photonic and camera.
+        4. add gain uncertainty for each pixel.
+        5. convert to grayscales (assume linear responce).
+        6. Quantize and clip in the relevant digital range [0,2^bits].
+        ************** TODO - need to verify the correctness of gain and bias. *****************
+
+        """
+
+        GRAY_SCALE_IMAGES = np.zeros([N_views, cnx, cny, N_channels])
+        RADIANCE_IMAGES = np.zeros([N_views, cnx, cny, N_channels])
+
+        # loop over all views
+        for sat_id, sat_name in enumerate(sat_names):
+            # note that sat_id it is not the number (i) of sat(i). If for instance
+            # sat_names = sat4, sat7 the pairs are (sat_id = 0 sat_name = sat4), (sat_id = 1 sat_name = sat7)
+
+            # get the right imager from the list of setup imagers per this imager id:
+            this_sat_imager = imagers_list[sat_id]
+            # update each imager individualty:
+            this_sat_imager.adjust_exposure_time(radiances_per_imager, sat_id)
+
+            image_per_imager_per_sat, radiance_to_graylevel_scale = \
+                this_sat_imager.convert_radiance_to_graylevel(radiances_per_imager[sat_id], cancel_noise = cancel_noise)
+            GRAY_SCALE_IMAGES[sat_id,...] = image_per_imager_per_sat
+
+            radiance_to_electrons_scale = radiance_to_graylevel_scale/this_sat_imager.electrons2grayscale_factor
+
+            # image_per_imager_per_sat.shape = (nx,ny,channels)
+            # radiance_to_graylevel_scale.shape = (channels,)
+            # Back to normalized radiances but here it is with the added noise whith scales to radiance
+            radiance_per_imager_per_sat = image_per_imager_per_sat * (1/radiance_to_graylevel_scale)
+            electrons_per_sat_per_band = radiance_per_imager_per_sat*radiance_to_electrons_scale
+            # TODO - Ensure the feasability of the obove step with Yoav.
+            RADIANCE_IMAGES[sat_id,...] = radiance_per_imager_per_sat
+
+  
+    else: # to if(num_stokes >= 3):
+        # TODO
+        NotImplementedError()
+
+    return RADIANCE_IMAGES
+
 
 def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat_names, cnx, cny):
     num_stokes = len(run_params['stokes'])
