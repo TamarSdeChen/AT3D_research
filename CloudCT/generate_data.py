@@ -141,6 +141,9 @@ def run_simulation(args):
         veff=np.linspace(0.02, 0.56, 10),
     )
     optical_properties = optical_property_generator(cloud_scatterer_on_rte_grid)
+    
+    # Extract extinction from optical properties (using first wavelength)
+    extinction = np.array(optical_properties[mean_wavelengths[0]].extinction)
 
     # one function to generate rayleigh scattering.
     rayleigh_scattering = at3d.rayleigh.to_grid(mean_wavelengths, atmosphere, rte_grid)
@@ -155,9 +158,7 @@ def run_simulation(args):
         lat_list = [-999]
         long_list = [-999]
         utc_time_list = [0]
-        print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(run_params['const_sun_azimuth'], run_params['const_sun_zenith']))
-
-
+        
     surface = at3d.surface.lambertian(0.05)
 
     cloud = {'images': [],
@@ -175,7 +176,8 @@ def run_simulation(args):
              'grid': [],
              'not_cloudbow_startind': [],
              'cloudbow_sample_angles': [],
-             'rotation_angle_deg': []
+             'rotation_angle_deg': [],
+             'ext': extinction
              }
 
     
@@ -258,33 +260,34 @@ def run_simulation(args):
     print(20 * "-")
     print(20 * "-")
     print(20 * "-")
+    
+    if not run_params['aply_pertubations']:
+        sat_positions, near_nadir_view_index, theta_max, theta_min = \
+            StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
+                           orbit_altitude=Rsat,
+                           move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+                           move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
+    else: 
+        # Perturbation limits in km
+        DX_LIMIT = 30.0  
+        DY_LIMIT = 30.0
+        DZ_LIMIT = 30.0
 
-    # sat_positions, near_nadir_view_index, theta_max, theta_min = \
-    #     StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
-    #                    orbit_altitude=Rsat,
-    #                    move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-    #                    move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
-
-    # Perturbation limits in km
-    DX_LIMIT = 30.0  
-    DY_LIMIT = 30.0
-    DZ_LIMIT = 30.0
-
-    sat_positions, near_nadir_indices, theta_max, theta_min = \
-        CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
-                                    ORBIT_ALTITUDE=Rsat,
-                                    move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-                                    move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1],
-                                    DX=DX_LIMIT, DY=DY_LIMIT, DZ=DZ_LIMIT,
-                                    N=1) 
+        sat_positions, near_nadir_indices, theta_max, theta_min = \
+            CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
+                                        ORBIT_ALTITUDE=Rsat,
+                                        move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+                                        move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1],
+                                        DX=DX_LIMIT, DY=DY_LIMIT, DZ=DZ_LIMIT,
+                                        N=1) 
 
     # we intentionally, work with projections lists.
     up_list = np.array(sat_positions.shape[1] * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
     
     # Apply rotation if specified
     if run_params['apply_rotation']:
-        # Store original positions for visualization
-        sat_positions_before = sat_positions.copy()
+        # # Store original positions for visualization
+        # sat_positions_before = sat_positions.copy()
         
         # Randomly sample rotation angle from 0 to 360 degrees
         rotation_angle_deg = np.random.uniform(0, 360)
@@ -297,9 +300,9 @@ def run_simulation(args):
         sat_positions = sat_positions_rotated.reshape(1, -1, 3)
         up_list = up_list_rotated
         
-        # Visualize rotation
-        vis_save_path = os.path.join('/wdata/tamarsd/AT3D_research/CloudCT/figures/rotation_vs_original', 
-                                    f'rotation_visualization_cloud_{cloud_name}.png')
+        # # Visualize rotation
+        # vis_save_path = os.path.join('/wdata/tamarsd/AT3D_research/CloudCT/figures/rotation_vs_original', 
+        #                             f'rotation_visualization_cloud_{cloud_name}.png')
         # visualize_rotation(sat_positions_before, sat_positions, LOOKAT, 
         #                  rotation_angle_deg, 
         #                  title_suffix=f' - Cloud {cloud_name}',
@@ -399,9 +402,7 @@ def run_simulation(args):
             images_scatter.append(calc_image_in_scattering_plane_vectorbase(copied, curr_image, sensor_name, sun_azimuth,
                                                                                     sun_zenith))
 
-        if 0:
-            plot_cloud_images(images)
-            a = 5
+      
 
         print('getting CloudCT''s space carving')
         space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
