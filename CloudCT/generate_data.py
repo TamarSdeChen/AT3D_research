@@ -150,43 +150,13 @@ def run_simulation(args):
     # just as we have got solver dependent optical properties.
     if run_params['IS_SUN_CONST']:
         sun_location_num = 1
-        sun_azimuth_list = [run_params['const_sun_azimuth']]
-        sun_zenith_list = [run_params['const_sun_zenith']]
+        sun_azimuth = run_params['const_sun_azimuth']
+        sun_zenith = run_params['const_sun_zenith']
         lat_list = [-999]
         long_list = [-999]
         utc_time_list = [0]
         print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(run_params['const_sun_azimuth'], run_params['const_sun_zenith']))
-    else:
-        sun_location_num = run_params['num_of_sun_locations']
-        sun_azimuth_list = []
-        sun_zenith_list = []
-        lat_list = []
-        long_list = []
-        utc_time_list = []
-        for _ in range(sun_location_num):
-            if run_params['use_sunsync_file']:
-                assert (90 < run_params['zenith_thr'] < 180)
-                sun_azimuth, sun_zenith, utc_time, lat, long, sat_dir_angle = (
-                    generate_random_sun_angles_from_sunsync_orbit(run_params['sunsync_file_path'], run_params['zenith_thr']))
-                # sun_azimuth = sun_azimuth - sat_dir_angle  # azimuth relatively to the direction of motion
-                # if sun_azimuth < -180:
-                #     sun_azimuth = sun_azimuth + 360
-                if sun_azimuth > 180:
-                    sun_azimuth = sun_azimuth - 360
-            else:
-                assert (-90 < run_params['Lat_for_sun_angles'] < 90)
-                sun_azimuth, sun_zenith = generate_random_sun_angles_for_lat(run_params['Lat_for_sun_angles'])
-                lat = -999
-                long = -999
-                utc_time = 0
-            sun_azimuth_list.append(sun_azimuth)
-            sun_zenith_list.append(sun_zenith)
-            lat_list.append(lat)
-            long_list.append(long)
-            utc_time_list.append(utc_time)
-        # sun_azimuth_list = [97, 160]
-        # sun_zenith_list = [148, 102]
-        print('set varying sun_azimuth and sun zenith with augmentations.')
+
 
     surface = at3d.surface.lambertian(0.05)
 
@@ -196,8 +166,8 @@ def run_simulation(args):
              'mask': [],
              'mask_morph': [],
              'cloud_path': cloud_params['path'],
-             'sun_zenith': np.array(sun_zenith_list),
-             'sun_azimuth': np.array(sun_azimuth_list),
+             'sun_zenith': sun_zenith,
+             'sun_azimuth': sun_azimuth,
              'ray_mu': [],
              'ray_phi': [],
              'cameras_pos': [],
@@ -208,264 +178,263 @@ def run_simulation(args):
              'rotation_angle_deg': []
              }
 
-    for location_idx, sun_zenith, sun_azimuth in zip(range(sun_location_num), sun_zenith_list, sun_azimuth_list):
-        print('beginning solving RTE for sun aug #{}/{}'.format(location_idx+1,sun_location_num))
-        for wavelength in mean_wavelengths:
-            medium = {
-                'cloud': optical_properties[wavelength],
-                'rayleigh': rayleigh_scattering[wavelength]
-            }
-            config = at3d.configuration.get_config()
+    
+    for wavelength in mean_wavelengths:
+        medium = {
+            'cloud': optical_properties[wavelength],
+            'rayleigh': rayleigh_scattering[wavelength]
+        }
+        config = at3d.configuration.get_config()
 
-            solvers_dict.add_solver(
-                wavelength,
-                at3d.solver.RTE(
-                    numerical_params=config,
-                    surface=surface,
-                    source=at3d.source.solar(wavelength, np.cos(sun_zenith * np.pi / 180), sun_azimuth),
-                    # np.cos((180-cam_zenith)*np.pi/180), cam_azimuth),
-                    medium=medium,
-                    num_stokes=1
-                )
-
+        solvers_dict.add_solver(
+            wavelength,
+            at3d.solver.RTE(
+                numerical_params=config,
+                surface=surface,
+                source=at3d.source.solar(wavelength, np.cos(sun_zenith * np.pi / 180), sun_azimuth),
+                # np.cos((180-cam_zenith)*np.pi/180), cam_azimuth),
+                medium=medium,
+                num_stokes=1
             )
 
-        solvers_dict.solve(n_jobs=run_params['n_jobs'], maxiter=run_params['maxiter'])
+        )
 
-        ##### define sensors #####
+    solvers_dict.solve(n_jobs=run_params['n_jobs'], maxiter=run_params['maxiter'])
+
+    ##### define sensors #####
 
 
-        print('defining String of Pearls perspective sensors')
-        GSD = run_params['GSD']  # km
-        Rsat = run_params['Rsat']  # km
-        SATS_NUMBER_SETUP = run_params['SATS_NUMBER']
-        cloudbow_additional_scan = run_params['cloudbow_additional_scan']
-        sensor_dict = at3d.containers.SensorsDict()
+    print('defining String of Pearls perspective sensors')
+    GSD = run_params['GSD']  # km
+    Rsat = run_params['Rsat']  # km
+    SATS_NUMBER_SETUP = run_params['SATS_NUMBER']
+    cloudbow_additional_scan = run_params['cloudbow_additional_scan']
+    sensor_dict = at3d.containers.SensorsDict()
 
-        xgrid = np.float32(cloud_scatterer.x.data)
-        ygrid = np.float32(cloud_scatterer.y.data)
-        zgrid = np.float32(cloud_scatterer.z.data)
-        grid = np.array([xgrid, ygrid, zgrid], dtype=object)
+    xgrid = np.float32(cloud_scatterer.x.data)
+    ygrid = np.float32(cloud_scatterer.y.data)
+    zgrid = np.float32(cloud_scatterer.z.data)
+    grid = np.array([xgrid, ygrid, zgrid], dtype=object)
 
-        dx = cloud_scatterer.delx.item() # res of each grid cell in x direction
-        dy = cloud_scatterer.dely.item() # res of each grid cell in y direction
-        dz = round(np.diff(zgrid)[0], 5) # res of each grid cell in z direction
-        nx, ny, nz = cloud_scatterer.dims['x'], cloud_scatterer.dims['y'], cloud_scatterer.dims['z']
+    dx = cloud_scatterer.delx.item() # res of each grid cell in x direction
+    dy = cloud_scatterer.dely.item() # res of each grid cell in y direction
+    dz = round(np.diff(zgrid)[0], 5) # res of each grid cell in z direction
+    nx, ny, nz = cloud_scatterer.dims['x'], cloud_scatterer.dims['y'], cloud_scatterer.dims['z']
 
-        PIXEL_FOOTPRINT = GSD  # km
-        L = max(xgrid.max() - xgrid.min(), ygrid.max() - ygrid.min())
+    PIXEL_FOOTPRINT = GSD  # km
+    L = max(xgrid.max() - xgrid.min(), ygrid.max() - ygrid.min())
 
+    fov = 2 * np.rad2deg(np.arctan(0.5 * L / (Rsat)))
+    cny = int(np.floor(L / PIXEL_FOOTPRINT))
+    cnx = int(np.floor(L / PIXEL_FOOTPRINT))
+
+    CENTER_OF_MEDIUM_BOTTOM = [0.5 * nx * dx, 0.5 * ny * dy, 0]
+    # Somtimes it is more convinient to use wide fov to see the whole cloud
+    # from all the view points. so the FOV is also tuned:
+    IFTUNE_CAM = True
+    # --- TUNE FOV, CNY,CNX:
+    if (IFTUNE_CAM):
+        L *= run_params['tune_scalar']
         fov = 2 * np.rad2deg(np.arctan(0.5 * L / (Rsat)))
         cny = int(np.floor(L / PIXEL_FOOTPRINT))
         cnx = int(np.floor(L / PIXEL_FOOTPRINT))
 
-        CENTER_OF_MEDIUM_BOTTOM = [0.5 * nx * dx, 0.5 * ny * dy, 0]
-        # Somtimes it is more convinient to use wide fov to see the whole cloud
-        # from all the view points. so the FOV is also tuned:
-        IFTUNE_CAM = True
-        # --- TUNE FOV, CNY,CNX:
-        if (IFTUNE_CAM):
-            L *= run_params['tune_scalar']
-            fov = 2 * np.rad2deg(np.arctan(0.5 * L / (Rsat)))
-            cny = int(np.floor(L / PIXEL_FOOTPRINT))
-            cnx = int(np.floor(L / PIXEL_FOOTPRINT))
+        # not for all the mediums the CENTER_OF_MEDIUM_BOTTOM is a good place to lookat.
+    # tuning is applied by the variavle LOOKAT.
+    LOOKAT = CENTER_OF_MEDIUM_BOTTOM
+    if (IFTUNE_CAM):
+        LOOKAT[2] = 0.68 * nx * dz  # tuning. if IFTUNE_CAM = False, just lookat the bottom
 
-            # not for all the mediums the CENTER_OF_MEDIUM_BOTTOM is a good place to lookat.
-        # tuning is applied by the variavle LOOKAT.
-        LOOKAT = CENTER_OF_MEDIUM_BOTTOM
-        if (IFTUNE_CAM):
-            LOOKAT[2] = 0.68 * nx * dz  # tuning. if IFTUNE_CAM = False, just lookat the bottom
+    SAT_LOOKATS = np.array(SATS_NUMBER_SETUP * LOOKAT).reshape(-1,
+                                                                3)  # currently, all satellites lookat the same point.
 
-        SAT_LOOKATS = np.array(SATS_NUMBER_SETUP * LOOKAT).reshape(-1,
-                                                                   3)  # currently, all satellites lookat the same point.
+    print(20 * "-")
+    print(20 * "-")
+    print(20 * "-")
 
-        print(20 * "-")
-        print(20 * "-")
-        print(20 * "-")
+    print("CAMERA intrinsics summary")
+    print("fov = {}[deg], cnx = {}[pixels],cny ={}[pixels]".format(fov, cnx, cny))
 
-        print("CAMERA intrinsics summary")
-        print("fov = {}[deg], cnx = {}[pixels],cny ={}[pixels]".format(fov, cnx, cny))
+    print(20 * "-")
+    print(20 * "-")
+    print(20 * "-")
 
-        print(20 * "-")
-        print(20 * "-")
-        print(20 * "-")
+    # sat_positions, near_nadir_view_index, theta_max, theta_min = \
+    #     StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
+    #                    orbit_altitude=Rsat,
+    #                    move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+    #                    move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
 
-        # sat_positions, near_nadir_view_index, theta_max, theta_min = \
-        #     StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
-        #                    orbit_altitude=Rsat,
-        #                    move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-        #                    move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
+    # Perturbation limits in km
+    DX_LIMIT = 30.0  
+    DY_LIMIT = 30.0
+    DZ_LIMIT = 30.0
 
-        # Perturbation limits in km
-        DX_LIMIT = 30.0  
-        DY_LIMIT = 30.0
-        DZ_LIMIT = 30.0
+    sat_positions, near_nadir_indices, theta_max, theta_min = \
+        CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
+                                    ORBIT_ALTITUDE=Rsat,
+                                    move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+                                    move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1],
+                                    DX=DX_LIMIT, DY=DY_LIMIT, DZ=DZ_LIMIT,
+                                    N=1) 
 
-        sat_positions, near_nadir_indices, theta_max, theta_min = \
-            CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
-                                        ORBIT_ALTITUDE=Rsat,
-                                        move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-                                        move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1],
-                                        DX=DX_LIMIT, DY=DY_LIMIT, DZ=DZ_LIMIT,
-                                        N=1) 
-
-        # we intentionally, work with projections lists.
-        up_list = np.array(sat_positions.shape[1] * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
+    # we intentionally, work with projections lists.
+    up_list = np.array(sat_positions.shape[1] * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
+    
+    # Apply rotation if specified
+    if run_params['apply_rotation']:
+        # Store original positions for visualization
+        sat_positions_before = sat_positions.copy()
         
-        # Apply rotation if specified
-        if run_params['apply_rotation']:
-            # Store original positions for visualization
-            sat_positions_before = sat_positions.copy()
-            
-            # Randomly sample rotation angle from 0 to 360 degrees
-            rotation_angle_deg = np.random.uniform(0, 360)
-            
-            ROT_TOTAL, ROT_Z = setup_rotation_matrices(rotation_angle_deg, LOOKAT)
-            sat_positions_rotated, up_list_rotated = apply_rotation_to_sensor_positions(
-                sat_positions, ROT_TOTAL, ROT_Z, up_list
-            )
-            # Update sat_positions to use rotated positions (maintain shape (1, N, 3))
-            sat_positions = sat_positions_rotated.reshape(1, -1, 3)
-            up_list = up_list_rotated
-            
-            # Visualize rotation
-            vis_save_path = os.path.join('/wdata/tamarsd/AT3D_research/CloudCT/figures/rotation_vs_original', 
-                                        f'rotation_visualization_cloud_{cloud_name}.png')
-            # visualize_rotation(sat_positions_before, sat_positions, LOOKAT, 
-            #                  rotation_angle_deg, 
-            #                  title_suffix=f' - Cloud {cloud_name}',
-            #                  save_path=vis_save_path)
-        else:
-            rotation_angle_deg = None
-
-        names = ["sat" + str(i + 1) for i in range(sat_positions.shape[1])]
+        # Randomly sample rotation angle from 0 to 360 degrees
+        rotation_angle_deg = np.random.uniform(0, 360)
         
-        #no cloudbow scan here
-        cloudbow_sample_angles = None
-        not_cloudbow_startind = None
+        ROT_TOTAL, ROT_Z = setup_rotation_matrices(rotation_angle_deg, LOOKAT)
+        sat_positions_rotated, up_list_rotated = apply_rotation_to_sensor_positions(
+            sat_positions, ROT_TOTAL, ROT_Z, up_list
+        )
+        # Update sat_positions to use rotated positions (maintain shape (1, N, 3))
+        sat_positions = sat_positions_rotated.reshape(1, -1, 3)
+        up_list = up_list_rotated
         
-        for mean_wavelength in mean_wavelengths:
-            for position_vector, lookat_vector, up_vector in zip(sat_positions[0],
-                                                                       SAT_LOOKATS, up_list):
-                loop_sensor = at3d.sensor.perspective_projection(wavelength=mean_wavelength, fov=fov,
-                                                                 x_resolution=cnx, y_resolution=cny,
-                                                                 position_vector=position_vector,
-                                                                 lookat_vector=lookat_vector,
-                                                                 up_vector=up_vector, stokes=run_params['stokes'],
-                                                                 sub_pixel_ray_args={'method': at3d.sensor.stochastic,
-                                                                                     'nrays': 1})
+        # Visualize rotation
+        vis_save_path = os.path.join('/wdata/tamarsd/AT3D_research/CloudCT/figures/rotation_vs_original', 
+                                    f'rotation_visualization_cloud_{cloud_name}.png')
+        # visualize_rotation(sat_positions_before, sat_positions, LOOKAT, 
+        #                  rotation_angle_deg, 
+        #                  title_suffix=f' - Cloud {cloud_name}',
+        #                  save_path=vis_save_path)
+    else:
+        rotation_angle_deg = None
 
-                sensor_dict.add_sensor('CloudCT'+str(int(mean_wavelength*1e3)), loop_sensor)
-        print('Done defining CloudCT''s sensors')
-        print('getting CloudCT''s measurments')
-        # Next part will be the rendering, when the RTE solver is prepared (below).
-        # get the measurements
-        sensor_dict.get_measurements(solvers_dict, n_jobs=run_params['n_jobs'], verbose=True) # RTE + RENDERING
-        show_results(sensor_dict)
-        print('Done getting CloudCT''s measurments')
+    names = ["sat" + str(i + 1) for i in range(sat_positions.shape[1])]
+    
+    #no cloudbow scan here
+    cloudbow_sample_angles = None
+    not_cloudbow_startind = None
+    
+    for mean_wavelength in mean_wavelengths:
+        for position_vector, lookat_vector, up_vector in zip(sat_positions[0],
+                                                                    SAT_LOOKATS, up_list):
+            loop_sensor = at3d.sensor.perspective_projection(wavelength=mean_wavelength, fov=fov,
+                                                                x_resolution=cnx, y_resolution=cny,
+                                                                position_vector=position_vector,
+                                                                lookat_vector=lookat_vector,
+                                                                up_vector=up_vector, stokes=run_params['stokes'],
+                                                                sub_pixel_ray_args={'method': at3d.sensor.stochastic,
+                                                                                    'nrays': 1})
 
-        if not run_params['cancel_noise']:
-            sensor_dict_clean = copy.deepcopy(sensor_dict)
+            sensor_dict.add_sensor('CloudCT'+str(int(mean_wavelength*1e3)), loop_sensor)
+    print('Done defining CloudCT''s sensors')
+    print('getting CloudCT''s measurments')
+    # Next part will be the rendering, when the RTE solver is prepared (below).
+    # get the measurements
+    sensor_dict.get_measurements(solvers_dict, n_jobs=run_params['n_jobs'], verbose=True) # RTE + RENDERING
+    show_results(sensor_dict)
+    print('Done getting CloudCT''s measurments')
 
-            images_clean = []
-            for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict_clean.items()):
-                sensor_images = sensor_dict_clean.get_images(instrument)
-                sensor_group_list = sensor_dict_clean[instrument]['sensor_list']
-                assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
-                for sensor_ind, (sensor, sensor_name) in enumerate(zip(sensor_group_list, names)):
-                    # add image to 'images_clean' in order to save in file
-                    if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
-                        curr_image = np.array([sensor_images[sensor_ind].I.data.T])
-                    images_clean.append(curr_image*np.cos(np.deg2rad(180-sun_zenith)))  # Multiply the images by cos(sun-zenith-angle)
-                    copied = sensor.copy(deep=True)               
-            # The sensor_dict_clean is no not polarized and we don't need to convert the Stokes vector between camera and scattering frames
-            sensor_dict = add_noise_to_images(run_params, sensor_dict_clean, sun_zenith, names, cnx, cny)
-        else:
-            images_clean=[]
+    if not run_params['cancel_noise']:
+        sensor_dict_clean = copy.deepcopy(sensor_dict)
 
-        # ----------------------------------------------------
-
-        sensor_list = []
-        images = []
-        ray_mu_list = []
-        ray_phi_list = []
-        projection_matrices = []
-        images_scatter = []
-        for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict.items()):
-            sensor_images = sensor_dict.get_images(instrument)
-            sensor_group_list = sensor_dict[instrument]['sensor_list']
+        images_clean = []
+        for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict_clean.items()):
+            sensor_images = sensor_dict_clean.get_images(instrument)
+            sensor_group_list = sensor_dict_clean[instrument]['sensor_list']
             assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
             for sensor_ind, (sensor, sensor_name) in enumerate(zip(sensor_group_list, names)):
-                copied = sensor.copy(deep=True)
-
-                # add ray_mu and ray_phi to lists for future scattering plane calculations
-                ray_mu_list.append(copied.ray_mu.data)
-                ray_phi_list.append(copied.ray_phi.data)
-
-                # create 'sensor_list' for space carving - without cloudbow!
-
-                if (len(names[sensor_ind].split('_')) == 1) or (len(names[sensor_ind].split('_'))==2 and names[sensor_ind][-2:] == 's0'):
-                    ray_mask_pixel = np.zeros(copied.npixels.size, dtype=int)
-                    ray_mask_pixel[np.where(copied.I.data > run_params['radiance_thresholds'][sensor_ind])] = 1
-                    copied['weights'] = ('nrays', copied.I.data)
-                    copied['cloud_mask'] = ('nrays', ray_mask_pixel[copied.pixel_index.data])
-                    sensor_list.append(copied)
-
-                # add projection_matrix to 'projection_matrices' in order to save in file
-                projection_matrices.append(np.reshape(copied.attrs['projection_matrix'], (3, 4)))
-
-                # add image to 'images' in order to save in file
-
+                # add image to 'images_clean' in order to save in file
                 if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
                     curr_image = np.array([sensor_images[sensor_ind].I.data.T])
-                elif run_params['stokes'] == ['I', 'Q']:
-                    curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T])
-                elif run_params['stokes'] == ['I', 'Q', 'U']:
-                    curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
-                                           sensor_images[sensor_ind].U.data.T])
-                elif run_params['stokes'] == ['I', 'Q', 'U', 'V']:
-                    curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
-                                           sensor_images[sensor_ind].U.data.T, sensor_images[sensor_ind].V.data.T])
-                images.append(curr_image)
-                images_scatter.append(calc_image_in_scattering_plane_vectorbase(copied, curr_image, sensor_name, sun_azimuth,
-                                                                                      sun_zenith))
+                images_clean.append(curr_image*np.cos(np.deg2rad(180-sun_zenith)))  # Multiply the images by cos(sun-zenith-angle)
+                copied = sensor.copy(deep=True)               
+        # The sensor_dict_clean is no not polarized and we don't need to convert the Stokes vector between camera and scattering frames
+        sensor_dict = add_noise_to_images(run_params, sensor_dict_clean, sun_zenith, names, cnx, cny)
+    else:
+        images_clean=[]
 
-            if 0:
-                plot_cloud_images(images)
-                a = 5
+    # ----------------------------------------------------
 
-            print('getting CloudCT''s space carving')
-            space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
-            agreement = 0.8
-            carved_volume = space_carver.carve(sensor_list, agreement=(0.0, agreement), linear_mode=False)
-            mask4file = carved_volume.mask.data[:, :, :cloud_scatterer.z.data.size]
-            npad = ((1, 1), (1, 1), (1, 1))
+    sensor_list = []
+    images = []
+    ray_mu_list = []
+    ray_phi_list = []
+    projection_matrices = []
+    images_scatter = []
+    for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict.items()):
+        sensor_images = sensor_dict.get_images(instrument)
+        sensor_group_list = sensor_dict[instrument]['sensor_list']
+        assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
+        for sensor_ind, (sensor, sensor_name) in enumerate(zip(sensor_group_list, names)):
+            copied = sensor.copy(deep=True)
 
-            mask_data_padded = np.pad(mask4file.copy(),
-                                      pad_width=npad, mode='constant', constant_values=0)
+            # add ray_mu and ray_phi to lists for future scattering plane calculations
+            ray_mu_list.append(copied.ray_mu.data)
+            ray_phi_list.append(copied.ray_phi.data)
 
-            mask4file = mask4file > 0  # convert from int to bool
+            # create 'sensor_list' for space carving - without cloudbow!
 
-            struct = ndimage.generate_binary_structure(3, 2)
-            mask_morph = ndimage.binary_closing(mask_data_padded, struct)
-            mask_morph = mask_morph[1:-1, 1:-1, 1:-1]
+            if (len(names[sensor_ind].split('_')) == 1) or (len(names[sensor_ind].split('_'))==2 and names[sensor_ind][-2:] == 's0'):
+                ray_mask_pixel = np.zeros(copied.npixels.size, dtype=int)
+                ray_mask_pixel[np.where(copied.I.data > run_params['radiance_thresholds'][sensor_ind])] = 1
+                copied['weights'] = ('nrays', copied.I.data)
+                copied['cloud_mask'] = ('nrays', ray_mask_pixel[copied.pixel_index.data])
+                sensor_list.append(copied)
 
-            # remove cloud mask values at outer boundaries to prevent interaction with open boundary conditions.
-            # carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
+            # add projection_matrix to 'projection_matrices' in order to save in file
+            projection_matrices.append(np.reshape(copied.attrs['projection_matrix'], (3, 4)))
 
-            cloud['images'].append(np.array(images))
-            cloud['images_scatter'].append(np.array(images_scatter))
-            cloud['images_clean'].append(np.array(images_clean))
-            cloud['mask'].append(mask4file)
-            cloud['mask_morph'].append(mask_morph)
-            cloud['ray_mu'].append(np.array(ray_mu_list))
-            cloud['ray_phi'].append(np.array(ray_phi_list))
-            cloud['cameras_pos'].append(sat_positions)
-            cloud['cameras_P'].append(np.array(projection_matrices))
-            cloud['grid'].append(grid)
-            cloud['not_cloudbow_startind'].append(not_cloudbow_startind)
-            cloud['cloudbow_sample_angles'].append(cloudbow_sample_angles)
-            cloud['rotation_angle_deg'].append(rotation_angle_deg)
+            # add image to 'images' in order to save in file
+
+            if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
+                curr_image = np.array([sensor_images[sensor_ind].I.data.T])
+            elif run_params['stokes'] == ['I', 'Q']:
+                curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T])
+            elif run_params['stokes'] == ['I', 'Q', 'U']:
+                curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
+                                        sensor_images[sensor_ind].U.data.T])
+            elif run_params['stokes'] == ['I', 'Q', 'U', 'V']:
+                curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
+                                        sensor_images[sensor_ind].U.data.T, sensor_images[sensor_ind].V.data.T])
+            images.append(curr_image)
+            images_scatter.append(calc_image_in_scattering_plane_vectorbase(copied, curr_image, sensor_name, sun_azimuth,
+                                                                                    sun_zenith))
+
+        if 0:
+            plot_cloud_images(images)
+            a = 5
+
+        print('getting CloudCT''s space carving')
+        space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
+        agreement = 0.8
+        carved_volume = space_carver.carve(sensor_list, agreement=(0.0, agreement), linear_mode=False)
+        mask4file = carved_volume.mask.data[:, :, :cloud_scatterer.z.data.size]
+        npad = ((1, 1), (1, 1), (1, 1))
+
+        mask_data_padded = np.pad(mask4file.copy(),
+                                    pad_width=npad, mode='constant', constant_values=0)
+
+        mask4file = mask4file > 0  # convert from int to bool
+
+        struct = ndimage.generate_binary_structure(3, 2)
+        mask_morph = ndimage.binary_closing(mask_data_padded, struct)
+        mask_morph = mask_morph[1:-1, 1:-1, 1:-1]
+
+        # remove cloud mask values at outer boundaries to prevent interaction with open boundary conditions.
+        # carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
+
+        cloud['images'].append(np.array(images))
+        cloud['images_scatter'].append(np.array(images_scatter))
+        cloud['images_clean'].append(np.array(images_clean))
+        cloud['mask'].append(mask4file)
+        cloud['mask_morph'].append(mask_morph)
+        cloud['ray_mu'].append(np.array(ray_mu_list))
+        cloud['ray_phi'].append(np.array(ray_phi_list))
+        cloud['cameras_pos'].append(sat_positions)
+        cloud['cameras_P'].append(np.array(projection_matrices))
+        cloud['grid'].append(grid)
+        cloud['not_cloudbow_startind'].append(not_cloudbow_startind)
+        cloud['cloudbow_sample_angles'].append(cloudbow_sample_angles)
+        cloud['rotation_angle_deg'].append(rotation_angle_deg)
 
     cloud['images'] = np.array(cloud['images'])
     cloud['images_scatter'] = np.array(cloud['images_scatter'])
