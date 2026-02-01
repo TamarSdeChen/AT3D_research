@@ -1721,7 +1721,7 @@ class Imager(object):
 
             gray_scales.append(gray_scale)
 
-        gray_scales = np.stack(gray_scales, axis=2)
+        gray_scales = np.stack(gray_scales, axis=3)
         radiance_to_graylevel_scales = np.hstack(graylevel_scales)
         return gray_scales, radiance_to_graylevel_scales
 
