@@ -141,6 +141,9 @@ def run_simulation(args):
         veff=np.linspace(0.02, 0.56, 10),
     )
     optical_properties = optical_property_generator(cloud_scatterer_on_rte_grid)
+    
+    # Calculate extinction from optical properties
+    extinction = np.array(optical_properties[mean_wavelengths[0]].extinction)
 
     # one function to generate rayleigh scattering.
     rayleigh_scattering = at3d.rayleigh.to_grid(mean_wavelengths, atmosphere, rte_grid)
@@ -205,7 +208,8 @@ def run_simulation(args):
              'grid': [],
              'not_cloudbow_startind': [],
              'cloudbow_sample_angles': [],
-             'rotation_angle_deg': []
+             'rotation_angle_deg': [],
+             'ext': extinction
              }
 
     for location_idx, sun_zenith, sun_azimuth in zip(range(sun_location_num), sun_zenith_list, sun_azimuth_list):
@@ -289,13 +293,13 @@ def run_simulation(args):
         print(20 * "-")
         print(20 * "-")
         print(20 * "-")
-
-        # sat_positions, near_nadir_view_index, theta_max, theta_min = \
-        #     StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
-        #                    orbit_altitude=Rsat,
-        #                    move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-        #                    move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
-
+        # if run_params['apply_pertubation']:
+        #     sat_positions, near_nadir_view_index, theta_max, theta_min = \
+        #         StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
+        #                     orbit_altitude=Rsat,
+        #                     move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+        #                     move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
+        # else: 
         # Perturbation limits in km
         DX_LIMIT = 30.0  
         DY_LIMIT = 30.0
@@ -328,9 +332,9 @@ def run_simulation(args):
             sat_positions = sat_positions_rotated.reshape(1, -1, 3)
             up_list = up_list_rotated
             
-            # Visualize rotation
-            vis_save_path = os.path.join('/wdata/tamarsd/AT3D_research/CloudCT/figures/rotation_vs_original', 
-                                        f'rotation_visualization_cloud_{cloud_name}.png')
+            # # Visualize rotation
+            # vis_save_path = os.path.join('/wdata/tamarsd/AT3D_research/CloudCT/figures/rotation_vs_original', 
+            #                             f'rotation_visualization_cloud_{cloud_name}.png')
             # visualize_rotation(sat_positions_before, sat_positions, LOOKAT, 
             #                  rotation_angle_deg, 
             #                  title_suffix=f' - Cloud {cloud_name}',
@@ -374,7 +378,7 @@ def run_simulation(args):
                 assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
                 for sensor_ind, (sensor, sensor_name) in enumerate(zip(sensor_group_list, names)):
                     # add image I to 'images_clean' in order to save in file
-                    curr_image = np.array([sensor_images[sensor_ind].I.data])
+                    curr_image = np.array(sensor_images[sensor_ind].I.data)
                     images_clean.append(curr_image*np.cos(np.deg2rad(180-sun_zenith)))  # Multiply the images by cos(sun-zenith-angle)
                     # copied = sensor.copy(deep=True) 
             # images clean is a lise with clean images, each image with size 1,116,116               
@@ -439,9 +443,9 @@ def run_simulation(args):
             # remove cloud mask values at outer boundaries to prevent interaction with open boundary conditions.
             # carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
 
-            cloud['images_noise'].append(np.array(images_noise)[..., 0])
+            cloud['images_noise'].append(np.array(images_noise)[..., 0])#list of 10 each item is 116,116,1
             # cloud['images_scatter'].append(np.array(images_scatter))
-            cloud['images_clean'].append(np.array(images_clean)[..., 0]) #list of 10 each item is 116,116,1
+            cloud['images_clean'].append(np.array(images_clean)) 
             cloud['mask'].append(mask4file)
             cloud['mask_morph'].append(mask_morph)
             cloud['ray_mu'].append(np.array(ray_mu_list))
@@ -594,7 +598,9 @@ if __name__ == '__main__':
     # Change this path to use either params_cloudct.yaml or params_airmspi.yaml
     config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml" #"configs/params_cloudct.yaml"  # Default to CloudCT config
     run_params = load_run_params(params_path=config_path)
-    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+    clouds_path = "/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
+    #"/wdata/roironen/Data/subset_of_seven_clouds/clouds/cloud*.txt"
+    #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
 
     
     #main(clouds_path, config_path)
