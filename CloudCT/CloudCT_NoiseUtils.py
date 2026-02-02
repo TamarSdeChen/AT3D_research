@@ -369,10 +369,7 @@ def create_images_list(sensor_dict,stokes_list,names):
         sensor_group_list = sensor_dict[instrument]['sensor_list']
         assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
         for sensor_ind, sensor in enumerate(sensor_group_list):
-            if (stokes_list == ['I']) or (stokes_list == 'I'):
-                curr_image = np.array([sensor_images[sensor_ind].I.data])
-            else:
-                curr_image = np.stack([sensor_images[sensor_ind][pol_channel].data for pol_channel in stokes_list])
+            curr_image = np.array(sensor_images[sensor_ind].I.data) # IN OUTER CODE THER IS sensor_images[sensor_ind].I.data.T (the .T )
             images.append(curr_image)
     return images
 
@@ -808,14 +805,23 @@ def update_images_in_sensor_dict(images_per_sensor, sensor_dict):
     return sensor_dict_out
 
 def add_noise_to_images(run_params, sensor_dict, sun_zenith, sat_names, cnx, cny):
+    # this function get the sensoe_dict 
+    # conver it to list of images with the function create_images_list, this list is 10,1,116,116
+    # then er transpose to 10,116,116,1
+    # then we loop over the views and adjust the exposure time for each imager
+    # then we convert the radiances to grayscale images
+    # then we return the grayscale images
+    # the return is the grayscale images with shape 10,116,116,1
+
     assert len(run_params['stokes']) == 1, f"The stokes number MUST be 1 and not {len(run_params['stokes'])}"
     num_stokes = len(run_params['stokes'])
     N_channels = len(run_params['wavelengths'])
     Rsat = run_params['Rsat']
     GSD = run_params['GSD']
     cancel_noise = run_params['cancel_noise']
-    radiances_per_imager = np.array(create_images_list(sensor_dict, run_params['stokes'], sat_names))
-    # radiances_per_imager is just a list of images instead of sensor_dict.
+    radiances_per_imager = np.array(create_images_list(sensor_dict, run_params['stokes'], sat_names)) # return a lise of 10 images, each image with size 1,116,116
+    # radiances_per_imager is just a list of images instead of sensor_dict. shape 10,1,116,16
+    # radiances_per_imager = radiances_per_imager.transpose(0,2,3,1) #tamar change it to have channel in the last dimension 10,116,116,1
     if (num_stokes == 1):
         imagers, use_stokes, stokes_weights, wavelength_averaging = setup_imagers(run_params, sun_zenith)
         gain_std_percents, global_bias_std_percents, forward_dir_uncertainty_addition = get_uncertainties(
@@ -859,7 +865,7 @@ def add_noise_to_images(run_params, sensor_dict, sun_zenith, sat_names, cnx, cny
         """
 
         GRAY_SCALE_IMAGES = np.zeros([N_views, cnx, cny, N_channels])
-        RADIANCE_IMAGES = np.zeros([N_views, cnx, cny, N_channels])
+        RADIANCE_IMAGES = np.zeros([N_views, cnx, cny, N_channels]) #10,116,116,1
 
         # loop over all views
         for sat_id, sat_name in enumerate(sat_names):
@@ -869,7 +875,8 @@ def add_noise_to_images(run_params, sensor_dict, sun_zenith, sat_names, cnx, cny
             # get the right imager from the list of setup imagers per this imager id:
             this_sat_imager = imagers_list[sat_id]
             # update each imager individualty:
-            this_sat_imager.adjust_exposure_time(radiances_per_imager, sat_id)
+            this_sat_imager.adjust_exposure_time(radiances_per_imager, sat_id) # the problem is that we loop over views but send the
+                                                # radiances_per_imager which is a list of 10 images, each image with size 116,116,1
 
             image_per_imager_per_sat, radiance_to_graylevel_scale = \
                 this_sat_imager.convert_radiance_to_graylevel(radiances_per_imager[sat_id], cancel_noise = cancel_noise)

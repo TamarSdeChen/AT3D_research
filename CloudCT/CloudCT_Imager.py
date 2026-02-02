@@ -1485,7 +1485,7 @@ class Imager(object):
 
             else:
                 # max_of_images_per_channel = np.array(images).max()
-                max_of_images_per_channel = np.array(images)[:,sat_id,:,:].max()
+                max_of_images_per_channel = np.array(images)[sat_id,:,:].max()
 
             # electrons_number = 1e-6*self._exposure_time*INTEGRAL*image
             # The 1e-6* scales electrons_number to units of [electrons]
@@ -1533,7 +1533,7 @@ class Imager(object):
                 max_of_images_per_channel = np.array(images)[..., channel_index].max()
             else:
                 # max_of_images_per_channel = np.array(images).max()
-                max_of_images_per_channel = np.array(images)[:, sat_id, :, :].max()
+                max_of_images_per_channel = np.array(images)[sat_id, :, :].max()
                 # electrons_number = 1e-6*self._exposure_time*INTEGRAL*image
             # The 1e-6* scales electrons_number to units of [electrons]
             # Thus:
@@ -1721,7 +1721,7 @@ class Imager(object):
 
             gray_scales.append(gray_scale)
 
-        gray_scales = np.stack(gray_scales, axis=3)
+        gray_scales = np.stack(gray_scales, axis=2)
         radiance_to_graylevel_scales = np.hstack(graylevel_scales)
         return gray_scales, radiance_to_graylevel_scales
 

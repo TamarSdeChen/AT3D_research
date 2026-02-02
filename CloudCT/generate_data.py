@@ -86,7 +86,7 @@ def run_simulation(args):
 
    
     # load atmosphere
-    atmosphere = xr.open_dataset('../data/ancillary/AFGL_summer_mid_lat.nc')
+    atmosphere = xr.open_dataset('../AT3D_research/data/ancillary/AFGL_summer_mid_lat.nc')
     # subset the atmosphere, choose only the bottom twenty km.
     reduced_atmosphere = atmosphere.sel({'z': atmosphere.coords['z'].data[atmosphere.coords['z'].data <= 20.0]})
     # merge the atmosphere and cloud z coordinates
@@ -190,8 +190,8 @@ def run_simulation(args):
 
     surface = at3d.surface.lambertian(0.05)
 
-    cloud = {'images': [],
-             'images_scatter': [],
+    cloud = {'images_noise': [],
+            #  'images_scatter': [],
              'images_clean': [],
              'mask': [],
              'mask_morph': [],
@@ -373,24 +373,24 @@ def run_simulation(args):
                 sensor_group_list = sensor_dict_clean[instrument]['sensor_list']
                 assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
                 for sensor_ind, (sensor, sensor_name) in enumerate(zip(sensor_group_list, names)):
-                    # add image to 'images_clean' in order to save in file
-                    if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
-                        curr_image = np.array([sensor_images[sensor_ind].I.data.T])
+                    # add image I to 'images_clean' in order to save in file
+                    curr_image = np.array([sensor_images[sensor_ind].I.data])
                     images_clean.append(curr_image*np.cos(np.deg2rad(180-sun_zenith)))  # Multiply the images by cos(sun-zenith-angle)
-                    copied = sensor.copy(deep=True)               
+                    # copied = sensor.copy(deep=True) 
+            # images clean is a lise with clean images, each image with size 1,116,116               
             # The sensor_dict_clean is no not polarized and we don't need to convert the Stokes vector between camera and scattering frames
-            sensor_dict = add_noise_to_images(run_params, sensor_dict_clean, sun_zenith, names, cnx, cny)
+            images_noise = add_noise_to_images(run_params, sensor_dict_clean, sun_zenith, names, cnx, cny) # return 10,116,116,1 
         else:
             images_clean=[]
 
         # ----------------------------------------------------
 
         sensor_list = []
-        images = []
+        # images = []
         ray_mu_list = []
         ray_phi_list = []
         projection_matrices = []
-        images_scatter = []
+        # images_scatter = []
         for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict.items()):
             sensor_images = sensor_dict.get_images(instrument)
             sensor_group_list = sensor_dict[instrument]['sensor_list']
@@ -403,7 +403,6 @@ def run_simulation(args):
                 ray_phi_list.append(copied.ray_phi.data)
 
                 # create 'sensor_list' for space carving - without cloudbow!
-
                 if (len(names[sensor_ind].split('_')) == 1) or (len(names[sensor_ind].split('_'))==2 and names[sensor_ind][-2:] == 's0'):
                     ray_mask_pixel = np.zeros(copied.npixels.size, dtype=int)
                     ray_mask_pixel[np.where(copied.I.data > run_params['radiance_thresholds'][sensor_ind])] = 1
@@ -414,25 +413,12 @@ def run_simulation(args):
                 # add projection_matrix to 'projection_matrices' in order to save in file
                 projection_matrices.append(np.reshape(copied.attrs['projection_matrix'], (3, 4)))
 
-                # add image to 'images' in order to save in file
+                # # add image to 'images' in order to save in file
+                # curr_image = np.array([sensor_images[sensor_ind].I.data.T])
+                # images.append(curr_image)
+                # images_scatter.append(calc_image_in_scattering_plane_vectorbase(copied, curr_image, sensor_name, sun_azimuth,
+                #                                                                       sun_zenith))
 
-                if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
-                    curr_image = np.array([sensor_images[sensor_ind].I.data.T])
-                elif run_params['stokes'] == ['I', 'Q']:
-                    curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T])
-                elif run_params['stokes'] == ['I', 'Q', 'U']:
-                    curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
-                                           sensor_images[sensor_ind].U.data.T])
-                elif run_params['stokes'] == ['I', 'Q', 'U', 'V']:
-                    curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
-                                           sensor_images[sensor_ind].U.data.T, sensor_images[sensor_ind].V.data.T])
-                images.append(curr_image)
-                images_scatter.append(calc_image_in_scattering_plane_vectorbase(copied, curr_image, sensor_name, sun_azimuth,
-                                                                                      sun_zenith))
-
-            if 0:
-                plot_cloud_images(images)
-                a = 5
 
             print('getting CloudCT''s space carving')
             space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
@@ -453,9 +439,9 @@ def run_simulation(args):
             # remove cloud mask values at outer boundaries to prevent interaction with open boundary conditions.
             # carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
 
-            cloud['images'].append(np.array(images))
-            cloud['images_scatter'].append(np.array(images_scatter))
-            cloud['images_clean'].append(np.array(images_clean))
+            cloud['images_noise'].append(np.array(images_noise)[..., 0])
+            # cloud['images_scatter'].append(np.array(images_scatter))
+            cloud['images_clean'].append(np.array(images_clean)[..., 0]) #list of 10 each item is 116,116,1
             cloud['mask'].append(mask4file)
             cloud['mask_morph'].append(mask_morph)
             cloud['ray_mu'].append(np.array(ray_mu_list))
@@ -467,8 +453,8 @@ def run_simulation(args):
             cloud['cloudbow_sample_angles'].append(cloudbow_sample_angles)
             cloud['rotation_angle_deg'].append(rotation_angle_deg)
 
-    cloud['images'] = np.array(cloud['images'])
-    cloud['images_scatter'] = np.array(cloud['images_scatter'])
+    cloud['images_noise'] = np.array(cloud['images_noise'])
+    # cloud['images_scatter'] = np.array(cloud['images_scatter'])
     cloud['images_clean'] = np.array(cloud['images_clean'])
     cloud['mask'] = np.array(cloud['mask'])
     cloud['mask_morph'] = np.array(cloud['mask_morph'])
@@ -606,7 +592,7 @@ def load_run_params(params_path):
 if __name__ == '__main__':
     # Load configuration from YAML file
     # Change this path to use either params_cloudct.yaml or params_airmspi.yaml
-    config_path = "configs/params_cloudct.yaml"  # Default to CloudCT config
+    config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml" #"configs/params_cloudct.yaml"  # Default to CloudCT config
     run_params = load_run_params(params_path=config_path)
     clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
 
