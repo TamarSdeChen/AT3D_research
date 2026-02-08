@@ -211,7 +211,7 @@ def run_simulation(args):
 
     cloud = {'images_noise': [],
             #  'images_scatter': [],
-             'images_clean': [],
+             'images': [],
              'mask': [],
              'mask_morph': [],
              'cloud_path': cloud_params['path'],
@@ -458,7 +458,7 @@ def run_simulation(args):
 
             cloud['images_noise'].append(np.array(images_noise)[..., 0])#list of 10 each item is 116,116,1
             # cloud['images_scatter'].append(np.array(images_scatter))
-            cloud['images_clean'].append(np.array(images_clean)) 
+            cloud['images'].append(np.array(images_clean)) 
             cloud['mask'].append(mask4file)
             cloud['mask_morph'].append(mask_morph)
             cloud['ray_mu'].append(np.array(ray_mu_list))
@@ -472,7 +472,7 @@ def run_simulation(args):
 
     cloud['images_noise'] = np.array(cloud['images_noise'])
     # cloud['images_scatter'] = np.array(cloud['images_scatter'])
-    cloud['images_clean'] = np.array(cloud['images_clean'])
+    cloud['images'] = np.array(cloud['images'])
     cloud['mask'] = np.array(cloud['mask'])
     cloud['mask_morph'] = np.array(cloud['mask_morph'])
     cloud['ray_mu'] = np.array(cloud['ray_mu'])
