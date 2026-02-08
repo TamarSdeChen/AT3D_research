@@ -1,5 +1,6 @@
 import cv2
 import at3d
+from datetime import datetime
 import numpy as np
 import xarray as xr
 from collections import OrderedDict
@@ -60,7 +61,7 @@ def run_simulation(args):
     run_params, (cloud_name, cloud_params) = args
     print(f"Simulation of cloud {cloud_name} is running.")
 
-    
+    time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if not run_params['IF_AIRMSPI']:
         if run_params['IS_SUN_CONST'] == 0:
             path_stamp = 'varying_sun_lambertian_surface'
@@ -77,7 +78,7 @@ def run_simulation(args):
         cloud_scatterer = at3d.util.load_from_csv(cloud_params['path'], density='lwc', origin=(0.0, 0.0))
     else:
         cloud_scatterer = load_from_csv_shdom(cloud_params['path'], density='lwc', origin=(0.0,0.0))
-
+    
     # make sure all values will exist in the mie tables
     cloud_scatterer.veff.data[cloud_scatterer.veff.data <= 0.02] = 0.0201
     cloud_scatterer.veff.data[cloud_scatterer.veff.data >= 0.55] = 0.55
@@ -88,14 +89,15 @@ def run_simulation(args):
     # load atmosphere
     atmosphere = xr.open_dataset('../AT3D_research/data/ancillary/AFGL_summer_mid_lat.nc')
     # subset the atmosphere, choose only the bottom twenty km.
-    reduced_atmosphere = atmosphere.sel({'z': atmosphere.coords['z'].data[atmosphere.coords['z'].data <= 20.0]})
+    reduced_atmosphere = atmosphere.sel({'z': atmosphere.coords['z'].data[atmosphere.coords['z'].data <= 5.0]}) #ASK YOAV
     # merge the atmosphere and cloud z coordinates
-    merged_z_coordinate = at3d.grid.combine_z_coordinates([reduced_atmosphere, cloud_scatterer])
+    merged_z_coordinate = at3d.grid.combine_z_coordinates([reduced_atmosphere, cloud_scatterer]) # we need to combine! (in shdom it is doing it by itself and in at3d not)
 
     # define the property grid - which is equivalent to the base RTE grid
     rte_grid = at3d.grid.make_grid(cloud_scatterer.x.diff('x')[0], cloud_scatterer.x.data.size,
                                    cloud_scatterer.y.diff('y')[0], cloud_scatterer.y.data.size,
                                    merged_z_coordinate)
+ 
 
     cloud_scatterer_on_rte_grid = at3d.grid.resample_onto_grid(rte_grid, cloud_scatterer)
 
@@ -140,10 +142,13 @@ def run_simulation(args):
         reff=np.linspace(0.01, 35.0, 30),
         veff=np.linspace(0.02, 0.56, 10),
     )
+    
+    only_cloud_optical_properties = optical_property_generator(cloud_scatterer)    
     optical_properties = optical_property_generator(cloud_scatterer_on_rte_grid)
     
     # Calculate extinction from optical properties
-    extinction = np.array(optical_properties[mean_wavelengths[0]].extinction)
+    only_coud_extinction = np.array(only_cloud_optical_properties[mean_wavelengths[0]].extinction)
+    # Calculate extinction from optical properties
 
     # one function to generate rayleigh scattering.
     rayleigh_scattering = at3d.rayleigh.to_grid(mean_wavelengths, atmosphere, rte_grid)
@@ -151,7 +156,7 @@ def run_simulation(args):
     solvers_dict = at3d.containers.SolversDict()
     # note we could set solver dependent surfaces / sources / numerical_config here
     # just as we have got solver dependent optical properties.
-    if run_params['IS_SUN_CONST']:
+    if run_params['IS_SUN_CONST'] and not run_params['apply_rotation']:
         sun_location_num = 1
         sun_azimuth_list = [run_params['const_sun_azimuth']]
         sun_zenith_list = [run_params['const_sun_zenith']]
@@ -159,6 +164,17 @@ def run_simulation(args):
         long_list = [-999]
         utc_time_list = [0]
         print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(run_params['const_sun_azimuth'], run_params['const_sun_zenith']))
+    elif run_params['apply_rotation']:
+        sun_location_num = 1
+        # Randomly sample rotation angle from 0 to 360 degrees
+        rotation_angle_deg = round(np.random.uniform(0, 360))
+        print(f"Rotation angle: {rotation_angle_deg} degrees")
+        new_zenith, new_azimuth  = rotate_sun_angles(run_params['const_sun_zenith'], run_params['const_sun_azimuth'], rotation_angle_deg)
+        sun_azimuth_list = [new_azimuth]
+        sun_zenith_list = [new_zenith]
+        lat_list = [-999]
+        long_list = [-999]
+        utc_time_list = [0]
     else:
         sun_location_num = run_params['num_of_sun_locations']
         sun_azimuth_list = []
@@ -209,7 +225,7 @@ def run_simulation(args):
              'not_cloudbow_startind': [],
              'cloudbow_sample_angles': [],
              'rotation_angle_deg': [],
-             'ext': extinction
+             'ext': only_coud_extinction
              }
 
     for location_idx, sun_zenith, sun_azimuth in zip(range(sun_location_num), sun_zenith_list, sun_azimuth_list):
@@ -301,9 +317,9 @@ def run_simulation(args):
         #                     move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
         # else: 
         # Perturbation limits in km
-        DX_LIMIT = 30.0  
-        DY_LIMIT = 30.0
-        DZ_LIMIT = 30.0
+        DX_LIMIT = 0  
+        DY_LIMIT = 0
+        DZ_LIMIT = 0
 
         sat_positions, near_nadir_indices, theta_max, theta_min = \
             CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
@@ -321,8 +337,7 @@ def run_simulation(args):
             # Store original positions for visualization
             sat_positions_before = sat_positions.copy()
             
-            # Randomly sample rotation angle from 0 to 360 degrees
-            rotation_angle_deg = np.random.uniform(0, 360)
+            
             
             ROT_TOTAL, ROT_Z = setup_rotation_matrices(rotation_angle_deg, LOOKAT)
             sat_positions_rotated, up_list_rotated = apply_rotation_to_sensor_positions(
@@ -355,9 +370,7 @@ def run_simulation(args):
                                                                  x_resolution=cnx, y_resolution=cny,
                                                                  position_vector=position_vector,
                                                                  lookat_vector=lookat_vector,
-                                                                 up_vector=up_vector, stokes=run_params['stokes'],
-                                                                 sub_pixel_ray_args={'method': at3d.sensor.stochastic,
-                                                                                     'nrays': 1})
+                                                                 up_vector=up_vector, stokes=run_params['stokes'])
 
                 sensor_dict.add_sensor('CloudCT'+str(int(mean_wavelength*1e3)), loop_sensor)
         print('Done defining CloudCT''s sensors')
@@ -548,7 +561,7 @@ def process_Rois_projections(projections, mean_x, mean_y, stokes, wavelengths, f
 
 
 def plot_cloud_images(images):
-    from datetime import datetime
+   
     
     # Create output directory
     output_dir = '/wdata/tamarsd/AT3D_research/CloudCT/figures/results_clouds'
@@ -596,9 +609,11 @@ def load_run_params(params_path):
 if __name__ == '__main__':
     # Load configuration from YAML file
     # Change this path to use either params_cloudct.yaml or params_airmspi.yaml
-    config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml" #"configs/params_cloudct.yaml"  # Default to CloudCT config
+    config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml"
     run_params = load_run_params(params_path=config_path)
-    clouds_path = "/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
+    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+
+    #"/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
     #"/wdata/roironen/Data/subset_of_seven_clouds/clouds/cloud*.txt"
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
 
