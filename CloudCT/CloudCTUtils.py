@@ -1375,7 +1375,37 @@ def apply_rotation_to_sensor_positions(sat_positions, ROT_TOTAL, ROT_Z, up_list)
         transformed_up_vectors.append(new_up_vector)
     
     return np.array(transformed_positions), np.array(transformed_up_vectors)
-
+    
+def rotate_sun_angles(zenith_deg, azimuth_deg, rotation_theta_deg):
+    # 1. Convert degrees to radians
+    zen_rad = np.deg2rad(zenith_deg)
+    azi_rad = np.deg2rad(azimuth_deg)
+    rot_rad = np.deg2rad(rotation_theta_deg)
+    
+    # 2. Create Sun Unit Vector (Direction toward the Sun)
+    # Using the standard: Z is up, Azimuth 0 is +X
+    sun_vec = np.array([
+        np.sin(zen_rad) * np.cos(azi_rad),
+        np.sin(zen_rad) * np.sin(azi_rad),
+        np.cos(zen_rad)
+    ])
+    
+    # 3. Create the 3x3 Rotation Matrix around Z
+    cos_t, sin_t = np.cos(rot_rad), np.sin(rot_rad)
+    R_z = np.array([
+        [cos_t, -sin_t, 0],
+        [sin_t,  cos_t, 0],
+        [0,      0,     1]
+    ])
+    
+    # 4. Rotate the vector
+    new_sun_vec = R_z @ sun_vec
+    
+    # 5. Convert back to Zenith and Azimuth
+    new_zenith = np.rad2deg(np.arccos(new_sun_vec[2]))
+    new_azimuth = np.rad2deg(np.arctan2(new_sun_vec[1], new_sun_vec[0]))
+    
+    return new_zenith, new_azimuth % 360
 
 def visualize_rotation(sat_positions_before, sat_positions_after, lookat, rotation_angle_deg, 
                        title_suffix="", save_path=None):
