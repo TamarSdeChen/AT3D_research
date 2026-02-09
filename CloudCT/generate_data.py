@@ -60,31 +60,30 @@ def simple_main(run_params, clouds_path):
 def run_simulation(args):
     run_params, (cloud_name, cloud_params) = args
     print(f"Simulation of cloud {cloud_name} is running.")
+   
+    path_stamp = 'const_sun_const_rotation_no_perturbation'
+    filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
+                            'cloud_results_' + cloud_name + '.pkl')
 
-    time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if not run_params['IF_AIRMSPI']:
-        if run_params['IS_SUN_CONST'] == 0:
-            path_stamp = 'varying_sun_lambertian_surface'
-        else:
-            path_stamp = 'const_sun_random_rotation'
-        filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
-                                'cloud_results_' + cloud_name + '.pkl')
-
-        if os.path.exists(filename):
-            print(f'skipping cloud in {filename}')
-            return
+    if os.path.exists(filename):
+        print(f'skipping cloud in {filename}')
+        return
     
     if run_params['IF_NEW_TXT']:
         cloud_scatterer = at3d.util.load_from_csv(cloud_params['path'], density='lwc', origin=(0.0, 0.0))
     else:
-        cloud_scatterer = load_from_csv_shdom(cloud_params['path'], density='lwc', origin=(0.0,0.0))
-    
+        cloud_scatterer_not_padded, dx, nx, dy, ny, z = load_from_csv_shdom(cloud_params['path'], density='lwc', origin=(0.0,0.0))
+        cloud_scatterer = pad_cloud_scatterer(cloud_scatterer_not_padded, dx, dy, pad_side=0, pad_bottom=0, pad_top=2)
+
     # make sure all values will exist in the mie tables
     cloud_scatterer.veff.data[cloud_scatterer.veff.data <= 0.02] = 0.0201
     cloud_scatterer.veff.data[cloud_scatterer.veff.data >= 0.55] = 0.55
     cloud_scatterer.reff.data[cloud_scatterer.reff.data <= 0.01] = 0.0101
     cloud_scatterer.reff.data[cloud_scatterer.reff.data >= 35] = 35-1.1e-3
-
+    cloud_scatterer_not_padded.veff.data[cloud_scatterer_not_padded.veff.data <= 0.02] = 0.0201
+    cloud_scatterer_not_padded.veff.data[cloud_scatterer_not_padded.veff.data >= 0.55] = 0.55
+    cloud_scatterer_not_padded.reff.data[cloud_scatterer_not_padded.reff.data <= 0.01] = 0.0101
+    cloud_scatterer_not_padded.reff.data[cloud_scatterer_not_padded.reff.data >= 35] = 35-1.1e-3
    
     # load atmosphere
     atmosphere = xr.open_dataset('../AT3D_research/data/ancillary/AFGL_summer_mid_lat.nc')
@@ -143,7 +142,7 @@ def run_simulation(args):
         veff=np.linspace(0.02, 0.56, 10),
     )
     
-    only_cloud_optical_properties = optical_property_generator(cloud_scatterer)    
+    only_cloud_optical_properties = optical_property_generator(cloud_scatterer_not_padded)    ##ASK VADIM
     optical_properties = optical_property_generator(cloud_scatterer_on_rte_grid)
     
     # Calculate extinction from optical properties
@@ -176,36 +175,7 @@ def run_simulation(args):
         long_list = [-999]
         utc_time_list = [0]
     else:
-        sun_location_num = run_params['num_of_sun_locations']
-        sun_azimuth_list = []
-        sun_zenith_list = []
-        lat_list = []
-        long_list = []
-        utc_time_list = []
-        for _ in range(sun_location_num):
-            if run_params['use_sunsync_file']:
-                assert (90 < run_params['zenith_thr'] < 180)
-                sun_azimuth, sun_zenith, utc_time, lat, long, sat_dir_angle = (
-                    generate_random_sun_angles_from_sunsync_orbit(run_params['sunsync_file_path'], run_params['zenith_thr']))
-                # sun_azimuth = sun_azimuth - sat_dir_angle  # azimuth relatively to the direction of motion
-                # if sun_azimuth < -180:
-                #     sun_azimuth = sun_azimuth + 360
-                if sun_azimuth > 180:
-                    sun_azimuth = sun_azimuth - 360
-            else:
-                assert (-90 < run_params['Lat_for_sun_angles'] < 90)
-                sun_azimuth, sun_zenith = generate_random_sun_angles_for_lat(run_params['Lat_for_sun_angles'])
-                lat = -999
-                long = -999
-                utc_time = 0
-            sun_azimuth_list.append(sun_azimuth)
-            sun_zenith_list.append(sun_zenith)
-            lat_list.append(lat)
-            long_list.append(long)
-            utc_time_list.append(utc_time)
-        # sun_azimuth_list = [97, 160]
-        # sun_zenith_list = [148, 102]
-        print('set varying sun_azimuth and sun zenith with augmentations.')
+        raise ValueError("Invalid option for sun")
 
     surface = at3d.surface.lambertian(0.05)
 
@@ -237,6 +207,16 @@ def run_simulation(args):
             }
             config = at3d.configuration.get_config()
 
+            config['num_mu_bins'] = 8
+            config['num_phi_bins'] = 16
+            config['split_accuracies'] = 0.1
+            config['max_total_mb'] = 100000
+            
+            config['spherical_harmonics_accuracy'] = 0.01
+            config['num_sh_term_factor'] = 5
+            config['high_order_radiance'] = True
+            config['max_total_mb'] = 100000
+
             solvers_dict.add_solver(
                 wavelength,
                 at3d.solver.RTE(
@@ -253,8 +233,6 @@ def run_simulation(args):
         solvers_dict.solve(n_jobs=run_params['n_jobs'], maxiter=run_params['maxiter'])
 
         ##### define sensors #####
-
-
         print('defining String of Pearls perspective sensors')
         GSD = run_params['GSD']  # km
         Rsat = run_params['Rsat']  # km
@@ -300,26 +278,16 @@ def run_simulation(args):
                                                                    3)  # currently, all satellites lookat the same point.
 
         print(20 * "-")
-        print(20 * "-")
-        print(20 * "-")
-
+ 
         print("CAMERA intrinsics summary")
         print("fov = {}[deg], cnx = {}[pixels],cny ={}[pixels]".format(fov, cnx, cny))
 
         print(20 * "-")
-        print(20 * "-")
-        print(20 * "-")
-        # if run_params['apply_pertubation']:
-        #     sat_positions, near_nadir_view_index, theta_max, theta_min = \
-        #         StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
-        #                     orbit_altitude=Rsat,
-        #                     move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-        #                     move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
-        # else: 
-        # Perturbation limits in km
-        DX_LIMIT = 0  
-        DY_LIMIT = 0
-        DZ_LIMIT = 0
+  
+       
+        DX_LIMIT = 50 
+        DY_LIMIT = 50
+        DZ_LIMIT = 50
 
         sat_positions, near_nadir_indices, theta_max, theta_min = \
             CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
@@ -347,13 +315,6 @@ def run_simulation(args):
             sat_positions = sat_positions_rotated.reshape(1, -1, 3)
             up_list = up_list_rotated
             
-            # # Visualize rotation
-            # vis_save_path = os.path.join('/wdata/tamarsd/AT3D_research/CloudCT/figures/rotation_vs_original', 
-            #                             f'rotation_visualization_cloud_{cloud_name}.png')
-            # visualize_rotation(sat_positions_before, sat_positions, LOOKAT, 
-            #                  rotation_angle_deg, 
-            #                  title_suffix=f' - Cloud {cloud_name}',
-            #                  save_path=vis_save_path)
         else:
             rotation_angle_deg = None
 
@@ -375,6 +336,7 @@ def run_simulation(args):
                 sensor_dict.add_sensor('CloudCT'+str(int(mean_wavelength*1e3)), loop_sensor)
         print('Done defining CloudCT''s sensors')
         print('getting CloudCT''s measurments')
+        
         # Next part will be the rendering, when the RTE solver is prepared (below).
         # get the measurements
         sensor_dict.get_measurements(solvers_dict, n_jobs=run_params['n_jobs'], verbose=True) # RTE + RENDERING
@@ -612,11 +574,10 @@ if __name__ == '__main__':
     config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml"
     run_params = load_run_params(params_path=config_path)
     clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-
     #"/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
+    #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
     #"/wdata/roironen/Data/subset_of_seven_clouds/clouds/cloud*.txt"
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
 
-    
     #main(clouds_path, config_path)
     simple_main(run_params, clouds_path)

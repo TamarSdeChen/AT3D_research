@@ -1,6 +1,6 @@
 # CloudCT Configuration
 # Base parameters
-IF_AIRMSPI: False
+
 IF_NEW_TXT: False
 n_jobs: 4
 maxiter: 150
@@ -13,7 +13,8 @@ cancel_noise: False
 SATS_NUMBER: 10
 wavelengths: [[0.620, 0.670]]
 radiance_thresholds: [0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255]  # SATS_NUMBER * [0.0255]
-images_path_for_nn: '/wdata/tamarsd/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D_no_rotation_50_wavelength/'
+images_path_for_nn: '/wdata/tamarsd/NN_Data/pertubation_50_km_AT3D/'
+#'/wdata/tamarsd/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D_no_rotation_50_wavelength/'
 #images_path_for_nn: '/wdata_visl/tamar_nadav_generated_clouds/2026/tamar_tune_AT3D_research/'
 Lat_for_sun_angles: -999  # According to what Vadim sent me
 use_sunsync_file: True
@@ -22,12 +23,13 @@ zenith_thr: 100
 num_of_sun_locations: 5
 Rsat: 500  # km
 GSD: 0.02  # in km, it is the ground spatial resolution
-const_sun_azimuth: 45.93
-const_sun_zenith: 160.64
+const_sun_azimuth: 45
+const_sun_zenith: 150
 cloudbow_additional_scan: 0
 cloudbow_range: [135, 150]  # cloudbow_range - list of two elements - the cloudbow range in degrees
 tune_scalar: 1.5
-apply_rotation: True
+apply_rotation: False
+apply_pertubation: True
 rotation_angle_deg: 90  # Rotation angle in degrees around Z-axis (null = no rotation)
 temperature: 288.15  # 15 degrees Celsius
 

@@ -183,7 +183,63 @@ def load_from_csv_shdom(path, density=None, origin=(0.0, 0.0)):
 
     dset.attrs['file_name'] = path
 
-    return dset
+    return dset, dx, nx, dy, ny, z
+
+def pad_cloud_scatterer(cloud_scatterer, dx, dy, pad_side=2, pad_bottom=2, pad_top=2):
+    """
+    Pad cloud_scatterer (xarray Dataset from load_from_csv_shdom) with zeros
+    on the sides (x, y) and bottom/top (z).
+
+    Args:
+        cloud_scatterer: xarray Dataset with dims (x, y, z) and data vars
+            (lwc or density, reff, veff).
+        dx, dy: grid spacing in x and y (from load_from_csv_shdom).
+        pad_side: number of cells to pad on each side in x and y.
+        pad_bottom, pad_top: number of cells to pad at bottom and top in z.
+
+    Returns:
+        New xarray Dataset with same structure and padded grid/data (zeros in pad region).
+    """
+    nx = cloud_scatterer.sizes['x']
+    ny = cloud_scatterer.sizes['y']
+    nz = cloud_scatterer.sizes['z']
+    z_vals = np.asarray(cloud_scatterer.z.values)
+
+    if len(z_vals) > 1:
+        dz_vals = np.diff(z_vals)
+        dz_lo, dz_hi = float_round(dz_vals[0]), float_round(dz_vals[-1])
+    else:
+        dz_lo = dz_hi = 0.04
+
+    # Limit bottom padding so we don't go below z=0
+    if len(z_vals) > 0 and z_vals[0] > 0:
+        max_bottom = int(np.floor(z_vals[0] / dz_lo)) if dz_lo > 0 else 0
+        pad_bottom = min(pad_bottom, max_bottom)
+
+    # Extended z coordinate
+    new_nz = nz + pad_bottom + pad_top
+    new_z_vals = np.concatenate([
+        z_vals[0] - np.arange(pad_bottom, 0, -1) * dz_lo,
+        z_vals,
+        z_vals[-1] + np.arange(1, pad_top + 1) * dz_hi
+    ])
+    new_z = xr.DataArray(new_z_vals, coords=[range(new_nz)], dims=['z'])
+
+    new_nx = nx + 2 * pad_side
+    new_ny = ny + 2 * pad_side
+    padded = at3d.grid.make_grid(dx, new_nx, dy, new_ny, new_z)
+
+    pad_width = ((pad_side, pad_side), (pad_side, pad_side), (pad_bottom, pad_top))
+    for name in list(cloud_scatterer.data_vars):
+        if 'x' in cloud_scatterer[name].dims and 'y' in cloud_scatterer[name].dims and 'z' in cloud_scatterer[name].dims:
+            field = np.asarray(cloud_scatterer[name].values)
+            padded_field = np.pad(field, pad_width, mode='constant', constant_values=0)
+            padded[name] = (['x', 'y', 'z'], padded_field)
+
+    for key, value in cloud_scatterer.attrs.items():
+        padded.attrs[key] = value
+
+    return padded
 
 
 def load_from_airmspi_mat(microphysics_path, mask_path, density=None):
