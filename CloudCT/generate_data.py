@@ -28,7 +28,7 @@ import yaml
 r_earth = 6371.0  # km
 origin, xaxis, yaxis, zaxis = [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]
 
-def main(clouds_path, config_path="configs/params_cloudct.yaml"):
+def main(clouds_path, config_path="configs/params_cloudct_no_pertubation.yaml"):
     run_params = load_run_params(params_path=config_path)
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
@@ -61,7 +61,7 @@ def run_simulation(args):
     run_params, (cloud_name, cloud_params) = args
     print(f"Simulation of cloud {cloud_name} is running.")
    
-    path_stamp = 'const_sun_const_rotation_no_perturbation'
+    path_stamp = 'train'
     filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
                             'cloud_results_' + cloud_name + '.pkl')
 
@@ -183,7 +183,7 @@ def run_simulation(args):
             #  'images_scatter': [],
              'images': [],
              'mask': [],
-             'mask_morph': [],
+            #  'mask_morph': [],
              'cloud_path': cloud_params['path'],
              'sun_zenith': np.array(sun_zenith_list),
              'sun_azimuth': np.array(sun_azimuth_list),
@@ -192,8 +192,8 @@ def run_simulation(args):
              'cameras_pos': [],
              'cameras_P': [],
              'grid': [],
-             'not_cloudbow_startind': [],
-             'cloudbow_sample_angles': [],
+            #  'not_cloudbow_startind': [],
+            #  'cloudbow_sample_angles': [],
              'rotation_angle_deg': [],
              'ext': only_coud_extinction
              }
@@ -240,9 +240,9 @@ def run_simulation(args):
         cloudbow_additional_scan = run_params['cloudbow_additional_scan']
         sensor_dict = at3d.containers.SensorsDict()
 
-        xgrid = np.float32(cloud_scatterer.x.data)
-        ygrid = np.float32(cloud_scatterer.y.data)
-        zgrid = np.float32(cloud_scatterer.z.data)
+        xgrid = np.float32(cloud_scatterer_not_padded.x.data)
+        ygrid = np.float32(cloud_scatterer_not_padded.y.data)
+        zgrid = np.float32(cloud_scatterer_not_padded.z.data)
         grid = np.array([xgrid, ygrid, zgrid], dtype=object)
 
         dx = cloud_scatterer.delx.item() # res of each grid cell in x direction
@@ -285,9 +285,9 @@ def run_simulation(args):
         print(20 * "-")
   
        
-        DX_LIMIT = 50 
-        DY_LIMIT = 50
-        DZ_LIMIT = 50
+        DX_LIMIT = 0 
+        DY_LIMIT = 0
+        DZ_LIMIT = 0
 
         sat_positions, near_nadir_indices, theta_max, theta_min = \
             CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
@@ -304,9 +304,6 @@ def run_simulation(args):
         if run_params['apply_rotation']:
             # Store original positions for visualization
             sat_positions_before = sat_positions.copy()
-            
-            
-            
             ROT_TOTAL, ROT_Z = setup_rotation_matrices(rotation_angle_deg, LOOKAT)
             sat_positions_rotated, up_list_rotated = apply_rotation_to_sensor_positions(
                 sat_positions, ROT_TOTAL, ROT_Z, up_list
@@ -321,8 +318,8 @@ def run_simulation(args):
         names = ["sat" + str(i + 1) for i in range(sat_positions.shape[1])]
         
         #no cloudbow scan here
-        cloudbow_sample_angles = None
-        not_cloudbow_startind = None
+        # cloudbow_sample_angles = None
+        # not_cloudbow_startind = None
         
         for mean_wavelength in mean_wavelengths:
             for position_vector, lookat_vector, up_vector in zip(sat_positions[0],
@@ -392,60 +389,29 @@ def run_simulation(args):
                 # add projection_matrix to 'projection_matrices' in order to save in file
                 projection_matrices.append(np.reshape(copied.attrs['projection_matrix'], (3, 4)))
 
-                # # add image to 'images' in order to save in file
-                # curr_image = np.array([sensor_images[sensor_ind].I.data.T])
-                # images.append(curr_image)
-                # images_scatter.append(calc_image_in_scattering_plane_vectorbase(copied, curr_image, sensor_name, sun_azimuth,
-                #                                                                       sun_zenith))
+                
 
 
             print('getting CloudCT''s space carving')
             space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
             agreement = 0.8
             carved_volume = space_carver.carve(sensor_list, agreement=(0.0, agreement), linear_mode=False)
-            mask4file = carved_volume.mask.data[:, :, :cloud_scatterer.z.data.size]
-            npad = ((1, 1), (1, 1), (1, 1))
-
-            mask_data_padded = np.pad(mask4file.copy(),
-                                      pad_width=npad, mode='constant', constant_values=0)
-
+            mask4file = carved_volume.mask.data[:, :, :cloud_scatterer_not_padded.z.data.size]
             mask4file = mask4file > 0  # convert from int to bool
 
-            struct = ndimage.generate_binary_structure(3, 2)
-            mask_morph = ndimage.binary_closing(mask_data_padded, struct)
-            mask_morph = mask_morph[1:-1, 1:-1, 1:-1]
+  
 
-            # remove cloud mask values at outer boundaries to prevent interaction with open boundary conditions.
-            # carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
+            cloud['images_noise'] = np.array(images_noise)[..., 0]#list of 10 each item is 116,116,1
+            cloud['images'] = np.array(images_clean)
+            cloud['mask'] = mask4file
+            cloud['ray_mu'] = np.array(ray_mu_list)
+            cloud['ray_phi']= np.array(ray_phi_list)
+            cloud['cameras_pos'] = sat_positions
+            cloud['cameras_P'] = np.array(projection_matrices)
+            cloud['grid']= grid
+            cloud['rotation_angle_deg'] = rotation_angle_deg
 
-            cloud['images_noise'].append(np.array(images_noise)[..., 0])#list of 10 each item is 116,116,1
-            # cloud['images_scatter'].append(np.array(images_scatter))
-            cloud['images'].append(np.array(images_clean)) 
-            cloud['mask'].append(mask4file)
-            cloud['mask_morph'].append(mask_morph)
-            cloud['ray_mu'].append(np.array(ray_mu_list))
-            cloud['ray_phi'].append(np.array(ray_phi_list))
-            cloud['cameras_pos'].append(sat_positions)
-            cloud['cameras_P'].append(np.array(projection_matrices))
-            cloud['grid'].append(grid)
-            cloud['not_cloudbow_startind'].append(not_cloudbow_startind)
-            cloud['cloudbow_sample_angles'].append(cloudbow_sample_angles)
-            cloud['rotation_angle_deg'].append(rotation_angle_deg)
-
-    cloud['images_noise'] = np.array(cloud['images_noise'])
-    # cloud['images_scatter'] = np.array(cloud['images_scatter'])
-    cloud['images'] = np.array(cloud['images'])
-    cloud['mask'] = np.array(cloud['mask'])
-    cloud['mask_morph'] = np.array(cloud['mask_morph'])
-    cloud['ray_mu'] = np.array(cloud['ray_mu'])
-    cloud['ray_phi'] = np.array(cloud['ray_phi'])
-    cloud['cameras_pos'] = np.array(cloud['cameras_pos'])
-    cloud['cameras_P'] = np.array(cloud['cameras_P'])
-    cloud['grid'] = np.array(cloud['grid'])
-    cloud['not_cloudbow_startind'] = np.array(cloud['not_cloudbow_startind'])
-    cloud['cloudbow_sample_angles'] = np.array(cloud['cloudbow_sample_angles'])
-    cloud['rotation_angle_deg'] = np.array(cloud['rotation_angle_deg'])
-
+           
 
     if not os.path.exists(os.path.join(run_params['images_path_for_nn'], path_stamp)):
         # Create a new directory because it does not exist
@@ -571,10 +537,11 @@ def load_run_params(params_path):
 if __name__ == '__main__':
     # Load configuration from YAML file
     # Change this path to use either params_cloudct.yaml or params_airmspi.yaml
-    config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml"
+    config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct_no_pertubation.yaml"
     run_params = load_run_params(params_path=config_path)
-    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-    #"/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
+    clouds_path = "/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
+    #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+   
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
     #"/wdata/roironen/Data/subset_of_seven_clouds/clouds/cloud*.txt"
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
