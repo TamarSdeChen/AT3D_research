@@ -285,9 +285,9 @@ def run_simulation(args):
         print(20 * "-")
   
        
-        DX_LIMIT = 50 
-        DY_LIMIT = 50
-        DZ_LIMIT = 50
+        DX_LIMIT = 0 
+        DY_LIMIT = 0
+        DZ_LIMIT = 0
 
         sat_positions, near_nadir_indices, theta_max, theta_min = \
             CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
@@ -573,8 +573,9 @@ if __name__ == '__main__':
     # Change this path to use either params_cloudct.yaml or params_airmspi.yaml
     config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml"
     run_params = load_run_params(params_path=config_path)
-    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-    #"/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
+    clouds_path = "/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
+    #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+    #
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
     #"/wdata/roironen/Data/subset_of_seven_clouds/clouds/cloud*.txt"
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
