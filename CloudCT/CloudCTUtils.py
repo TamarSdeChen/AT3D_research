@@ -22,6 +22,139 @@ import matplotlib
 # matplotlib.use('TkAgg')
 import itertools
 
+
+
+import numpy as np
+
+def calculate_zenith_angles(coords, R_earth):
+    """Compute zenith angle (deg) from vertical for each position; coords (x,y,z) in km, z relative to surface."""
+    x = coords[:, 0]
+    y = coords[:, 1]
+    z_center = coords[:, 2] + R_earth
+
+    magnitudes = np.sqrt(x**2 + y**2 + z_center**2)
+    cos_theta = z_center / magnitudes
+    angles_rad = np.arccos(np.clip(cos_theta, -1.0, 1.0))
+    angles_deg = np.degrees(angles_rad)
+    return angles_deg
+
+def calculate_delta_omega(R_max, R_earth, R_sat):
+    opposite = R_max / 2.0
+    adjacent = R_earth + R_sat
+    theta = np.arctan(opposite / adjacent)
+    return 2.0 * theta
+
+def sample_camera_locations_randomized(N, R_sat, R_earth, delta_omega, safe_dist_km=200):
+    camera_locations = []
+    R_total = R_earth + R_sat 
+    theta = delta_omega / 2.0 
+    
+    # Calculate the radius of the ring at this altitude/angle
+    R_ring = R_total * np.sin(theta)
+    
+    # Calculate the angular buffer required for the safe distance
+    # s = r * phi  =>  phi = s / r
+    phi_safe_total = safe_dist_km / R_ring
+    
+    # Each bin needs to "give up" half the safety distance at each boundary
+    phi_buffer = phi_safe_total / 2.0
+    
+    bin_width = (2 * np.pi / N)
+    
+    # Safety Check: Ensure the bin is actually large enough to hold a 200km gap
+    if phi_safe_total >= bin_width:
+        raise ValueError(f"Number of cameras {N} is too high for a {safe_dist_km}km safety distance.")
+
+    for i in range(N-1):
+        # 1. Calculate the standard bin boundaries
+        phi_bin_start = bin_width * i
+        phi_bin_end = bin_width * (i + 1)
+        
+        # 2. Constrain the sampling range by the buffer
+        # This ensures a minimum of 'safe_dist_km' between any two cameras
+        phi_min = phi_bin_start + phi_buffer
+        phi_max = phi_bin_end - phi_buffer
+        
+        # 3. Sample phi within the safe sub-bin
+        phi = np.random.uniform(phi_min, phi_max)
+        
+        # 4. Calculate coordinates relative to Earth surface
+        x = R_total * np.sin(theta) * np.cos(phi)
+        y = R_total * np.sin(theta) * np.sin(phi)
+        z = R_total * np.cos(theta) - R_earth
+
+        # 5. Perturbation (Note: perturbation might slightly reduce safety distance,
+        # but 30-50km on a 200km buffer usually leaves plenty of room)
+        delta_x = np.random.uniform(50, 100) * np.random.choice([-1, 1])
+        delta_y = np.random.uniform(50, 100) * np.random.choice([-1, 1])
+        delta_z = np.random.uniform(30, 50) 
+        
+        x += delta_x
+        y += delta_y
+        z += delta_z
+
+        camera_locations.append([x, y, z])
+    
+    z_zenith = R_sat + np.random.uniform(30, 50)
+    camera_locations.append([delta_x, delta_y, z_zenith])
+    return np.array(camera_locations).reshape(1, -1, 3)
+
+import numpy as np
+
+def sample_camera_locations_zenith_varied(N, R_sat, R_earth, delta_omega, safe_dist_km=200):
+    camera_locations = []
+    current_phi_list = []
+    R_total = R_earth + R_sat 
+    
+    # 1. Tighter Theta Variety (Zenith change)
+    # Reducing variation to 1 degree total (0.5 up, 0.5 down) 
+    # This makes the Z change much less noticeable.
+    theta_center = delta_omega / 2.0
+    theta_variation = np.radians(3.0) 
+    theta_min_range = theta_center - (theta_variation / 2.0)
+    theta_max_range = theta_center #+ (theta_variation / 2.0)
+
+    # 2. Safety Buffer Calculation
+    # We use the smallest possible theta (the highest camera) because that's 
+    # where the circle is tightest and the cameras are most likely to collide.
+    min_theta_in_sample = min(theta_min_range, theta_max_range)
+    R_ring_min = R_total * np.sin(min_theta_in_sample)
+    
+    phi_safe_total = safe_dist_km / R_ring_min
+    bin_width = (2 * np.pi / N)
+
+    # Check if they can actually fit
+    if phi_safe_total >= bin_width:
+        max_cams = int((2 * np.pi * R_ring_min) / safe_dist_km)
+        raise ValueError(f"Cameras too crowded! Max cameras allowed: {max_cams}")
+
+    # 3. Calculate Wiggle Room
+    # This is the space left in the bin after accounting for the safety gap
+    free_phi_space = bin_width - phi_safe_total
+
+    for i in range(N):
+        # Randomized Zenith angle within the narrow 1-degree band
+        current_theta = np.random.uniform(theta_min_range, theta_max_range)
+        
+        # BETTER PHI SPREAD: Jittered Center
+        # Instead of np.random.uniform(phi_min, phi_max), we start at the 
+        # center of the bin and add a small random "jitter". 
+        # This prevents cameras from bunching up at the boundaries.
+        bin_center = (bin_width * i) + (bin_width / 2.0)
+        phi_jitter = np.random.uniform(-free_phi_space/2.1, free_phi_space/2.1)
+        current_phi = bin_center + phi_jitter
+        
+        # Small Altitude variety (0 to 10km as requested)
+        current_R = R_total + np.random.uniform(0, 10)
+
+        # 4. Convert Spherical to Cartesian
+        x = current_R * np.sin(current_theta) * np.cos(current_phi)
+        y = current_R * np.sin(current_theta) * np.sin(current_phi)
+        z = current_R * np.cos(current_theta) - R_earth + np.random.uniform(0, 50)
+
+        camera_locations.append([x, y, z])
+        current_phi_list.append(current_phi)
+    return np.array(camera_locations).reshape(1, -1, 3), np.array(current_phi_list).reshape(1, -1)
 # -------------------------------------------------------------------------------
 # ----------------------CONSTANTS------------------------------------------
 # -------------------------------------------------------------------------------
@@ -426,6 +559,311 @@ def StringOfPearls(SATS_NUMBER=10, orbit_altitude=500, widest_view=False, move_n
     near_nadir_view_index = np.argmin(np.abs(X_config))
 
     return sat_positions.T, near_nadir_view_index, theta_max, theta_min
+
+
+def plot_simulation_images(images_clean, images_noise=None, show=True, save_dir=None):
+    """
+    Plot one figure with all clean images (index above each) and optionally
+    one figure with all noise images. Optionally save figures to a directory.
+
+    Parameters:
+    -----------
+    images_clean : list or np.ndarray
+        Clean images, each element (h, w) or (1, h, w)
+    images_noise : np.ndarray or None, optional
+        Noise images, shape (n, h, w) or (n, h, w, 1). If None, only clean figure is drawn.
+    show : bool, optional
+        If True, call plt.show() after each figure.
+    save_dir : str or None, optional
+        If set, save figures to this directory (clean_images.png, noise_images.png).
+        Directory is created if it does not exist.
+    """
+    n_cols_default = 5
+    if save_dir is not None:
+        safe_mkdirs(save_dir)
+
+    # --- Clean images ---
+    n_clean = len(images_clean)
+    if n_clean > 0:
+        n_cols = min(n_cols_default, n_clean)
+        n_rows = (n_clean + n_cols - 1) // n_cols
+        fig_clean, axarr = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
+        if n_clean == 1:
+            axarr = np.array([axarr])
+        axarr = axarr.flatten()
+        for idx in range(n_clean):
+            im = np.squeeze(images_clean[idx])
+            axarr[idx].imshow(im, cmap='gray')
+            axarr[idx].set_title(str(idx))
+            axarr[idx].axis('off')
+        for j in range(n_clean, len(axarr)):
+            axarr[j].axis('off')
+        fig_clean.suptitle('Clean images')
+        plt.tight_layout()
+        if save_dir is not None:
+            fig_clean.savefig(os.path.join(save_dir, 'clean_images.png'), dpi=150, bbox_inches='tight')
+        if show:
+            plt.show()
+        plt.close(fig_clean)
+
+    # --- Noise images ---
+    if images_noise is not None:
+        images_noise = np.asarray(images_noise)
+        n_noise = images_noise.shape[0]
+        if n_noise > 0:
+            n_cols = min(n_cols_default, n_noise)
+            n_rows = (n_noise + n_cols - 1) // n_cols
+            fig_noise, axarr = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
+            if n_noise == 1:
+                axarr = np.array([axarr])
+            axarr = axarr.flatten()
+            for idx in range(n_noise):
+                im = np.squeeze(images_noise[idx])
+                axarr[idx].imshow(im, cmap='gray')
+                axarr[idx].set_title(str(idx))
+                axarr[idx].axis('off')
+            for j in range(n_noise, len(axarr)):
+                axarr[j].axis('off')
+            fig_noise.suptitle('Noise images')
+            plt.tight_layout()
+            if save_dir is not None:
+                fig_noise.savefig(os.path.join(save_dir, 'noise_images.png'), dpi=150, bbox_inches='tight')
+            if show:
+                plt.show()
+            plt.close(fig_noise)
+
+
+def _mip_axis_to_int(axis):
+    """Convert axis spec to int: 0, 1, 2 or 'x'->0, 'y'->1, 'z'->2."""
+    if isinstance(axis, str):
+        return {'x': 0, 'y': 1, 'z': 2}[axis.lower()]
+    return int(axis)
+
+
+def plot_mip(volume_3d, save_path=None, title=None, axis=2):
+    """
+    Maximum Intensity Projection along one axis: take max along that axis.
+
+    Parameters
+    ----------
+    volume_3d : np.ndarray
+        3D array. Grid order is assumed (x, y, z), so axis='z' or 2 projects onto (x,y).
+    save_path : str or None, optional
+        If set, save the figure to this path.
+    title : str or None, optional
+        Figure title. If None, uses "MIP (<axis>)".
+    axis : int or str, optional
+        Axis along which to take the maximum. int: 0, 1, 2. str: 'x', 'y', 'z'.
+        Default 2 (z). For grid order (x, y, z): 0=x, 1=y, 2=z.
+    """
+    vol = np.asarray(volume_3d)
+    if vol.ndim != 3:
+        return
+    ax_id = _mip_axis_to_int(axis)
+    axis_name = ('x', 'y', 'z')[ax_id]
+    mip = np.max(vol, axis=ax_id)
+    if title is None:
+        title = f'MIP ({axis_name})'
+    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    im = ax.imshow(mip, cmap='gray', aspect='equal')
+    ax.set_title(title)
+    plt.colorbar(im, ax=ax, label='Max intensity')
+    if save_path is not None:
+        safe_mkdirs(os.path.dirname(save_path))
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+
+def plot_circular_camera_distribution(sat_positions, run_params, save_path=None, lookat=None):
+    """
+    Visualize satellite positions in a circular configuration, similar to
+    CloudCT/generate_circular_data.
+
+    Parameters
+    ----------
+    sat_positions : np.ndarray
+        Satellite positions, shape (1, N, 3) or (N, 3).
+    run_params : dict-like
+        Dictionary containing at least 'R_max', 'R_earth', 'R_sat'.
+    save_path : str or None, optional
+        Path to save the figure. If None, the figure is not saved.
+    lookat : array-like or None, optional
+        3-element look-at point. If provided, it is plotted and each camera
+        is connected to it with a line.
+    """
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+
+    sat_positions = np.asarray(sat_positions)
+    if sat_positions.ndim == 3:
+        coords = sat_positions[0]
+    else:
+        coords = sat_positions
+
+    N_cameras = coords.shape[0]
+    if N_cameras == 0:
+        return
+
+    R_max = run_params['R_max']
+    R_earth = run_params['R_earth']
+    R_sat = run_params['R_sat']
+
+    # Use the same angular width definition as in generate_circular_data
+    d_omega = calculate_delta_omega(R_max, R_earth, R_sat)
+    theta_val = d_omega / 2.0
+    R_ring = (R_earth + R_sat) * np.sin(theta_val)
+    Z_ring = (R_earth + R_sat) * np.cos(theta_val) - R_earth
+
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # 1. Plot the bin boundaries (radial lines)
+    for k in range(N_cameras + 1):
+        phi_bin = (2 * np.pi / N_cameras) * k
+        x_line = [0, R_ring * np.cos(phi_bin)]
+        y_line = [0, R_ring * np.sin(phi_bin)]
+        z_line = [Z_ring, Z_ring]
+        ax.plot(x_line, y_line, z_line, color='gray', linestyle=':', alpha=0.6)
+        if k < N_cameras:
+            ax.text(R_ring * np.cos(phi_bin), R_ring * np.sin(phi_bin), Z_ring,
+                    f'{k}r', color='gray', fontsize=8)
+
+    # 2. Plot the camera points
+    ax.scatter(coords[:, 0], coords[:, 1], coords[:, 2], c='red', s=100, label='Cameras (X)')
+
+    # 3. Plot look-at point and connect cameras to it
+    if lookat is not None:
+        lookat = np.asarray(lookat).reshape(3,)
+        ax.scatter([lookat[0]], [lookat[1]], [lookat[2]], c='blue', s=120, marker='*', label='Look-at')
+        for idx, (x, y, z) in enumerate(coords):
+            ax.plot([x, lookat[0]], [y, lookat[1]], [z, lookat[2]], color='green', alpha=0.6)
+
+    # 4. Add labels above camera points
+    for idx, (x, y, z) in enumerate(coords):
+        ax.text(x, y, z + 15, f'Cam {idx}', color='black', fontsize=10, fontweight='bold', ha='center')
+
+    # 5. Draw the ring
+    phi_ring = np.linspace(0, 2 * np.pi, 100)
+    ax.plot(R_ring * np.cos(phi_ring), R_ring * np.sin(phi_ring), Z_ring, 'b--', alpha=0.3)
+
+    ax.set_zlim(0, R_sat + 50)
+    ax.set_title(f'Randomized Distribution in Bins (N={N_cameras})')
+    ax.set_xlabel('X (km)')
+    ax.set_ylabel('Y (km)')
+    ax.set_zlabel('Altitude (km)')
+
+    if save_path is not None:
+        safe_mkdirs(os.path.dirname(save_path))
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+
+def plot_camera_positions_projections(sat_positions, run_params, save_path=None, lookat=None):
+    """
+    Visualize camera positions in three 2D projections: along Y (x-z), along X (y-z), along Z (x-y).
+    Single figure with 1x3 subplots.
+
+    Parameters
+    ----------
+    sat_positions : np.ndarray
+        Camera positions, shape (1, N, 3) or (N, 3).
+    run_params : dict-like
+        Optional; used for context. Can be None.
+    save_path : str or None, optional
+        Path to save the figure.
+    lookat : array-like or None, optional
+        3-element look-at point. If provided, projected and plotted in each subplot.
+    """
+    sat_positions = np.asarray(sat_positions)
+    if sat_positions.ndim == 3:
+        coords = sat_positions[0]
+    else:
+        coords = sat_positions
+
+    N_cameras = coords.shape[0]
+    if N_cameras == 0:
+        return
+
+    lookat = np.asarray(lookat).reshape(3,) if lookat is not None else None
+
+    # Data ranges including lookat
+    x_vals = coords[:, 0].tolist()
+    y_vals = coords[:, 1].tolist()
+    z_vals = coords[:, 2].tolist()
+    if lookat is not None:
+        x_vals.append(lookat[0])
+        y_vals.append(lookat[1])
+        z_vals.append(lookat[2])
+    x_min, x_max = np.min(x_vals), np.max(x_vals)
+    y_min, y_max = np.min(y_vals), np.max(y_vals)
+    z_min, z_max = np.min(z_vals), np.max(z_vals)
+    margin_xy = max((x_max - x_min), (y_max - y_min), 50) * 0.12
+
+    # Zoom in on Z: tight vertical range so camera spread is visible (min range 80 km so single points don't collapse)
+    z_range_data = z_max - z_min
+    z_range = max(z_range_data, 80.0)
+    z_center = 0.5 * (z_min + z_max)
+    z_lo = z_center - 0.5 * z_range - 0.1 * z_range
+    z_hi = z_center + 0.5 * z_range + 0.1 * z_range
+
+    # Narrower first two columns so x–z and y–z subplots are tall
+    fig, axes = plt.subplots(1, 3, figsize=(14, 7), gridspec_kw={'width_ratios': [1, 1, 2]})
+
+    # Project along Y -> (x, z): zoomed in on Z so vertical distribution is visible
+    ax = axes[0]
+    ax.scatter(coords[:, 0], coords[:, 2], c='red', s=80, label='Cameras', zorder=2)
+    if lookat is not None:
+        ax.scatter(lookat[0], lookat[2], c='blue', s=120, marker='*', label='Look-at', zorder=2)
+        for i in range(N_cameras):
+            ax.plot([coords[i, 0], lookat[0]], [coords[i, 2], lookat[2]], 'green', alpha=0.5, zorder=1)
+    ax.set_xlabel('X (km)')
+    ax.set_ylabel('Z (km)')
+    ax.set_title('Projection along Y (x–z)')
+    ax.set_xlim(x_min - margin_xy, x_max + margin_xy)
+    ax.set_ylim(z_lo, z_hi)
+    ax.set_aspect('auto')
+    ax.grid(True, alpha=0.3)
+    for idx in range(N_cameras):
+        ax.annotate(f'Cam {idx}', (coords[idx, 0], coords[idx, 2]), textcoords='offset points', xytext=(5, 5), fontsize=8)
+
+    # Project along X -> (y, z): zoomed in on Z so vertical distribution is visible
+    ax = axes[1]
+    ax.scatter(coords[:, 1], coords[:, 2], c='red', s=80, label='Cameras', zorder=2)
+    if lookat is not None:
+        ax.scatter(lookat[1], lookat[2], c='blue', s=120, marker='*', label='Look-at', zorder=2)
+        for i in range(N_cameras):
+            ax.plot([coords[i, 1], lookat[1]], [coords[i, 2], lookat[2]], 'green', alpha=0.5, zorder=1)
+    ax.set_xlabel('Y (km)')
+    ax.set_ylabel('Z (km)')
+    ax.set_title('Projection along X (y–z)')
+    ax.set_xlim(y_min - margin_xy, y_max + margin_xy)
+    ax.set_ylim(z_lo, z_hi)
+    ax.set_aspect('auto')
+    ax.grid(True, alpha=0.3)
+    for idx in range(N_cameras):
+        ax.annotate(f'Cam {idx}', (coords[idx, 1], coords[idx, 2]), textcoords='offset points', xytext=(5, 5), fontsize=8)
+
+    # Project along Z -> (x, y): top-down view
+    ax = axes[2]
+    ax.scatter(coords[:, 0], coords[:, 1], c='red', s=80, label='Cameras', zorder=2)
+    if lookat is not None:
+        ax.scatter(lookat[0], lookat[1], c='blue', s=120, marker='*', label='Look-at', zorder=2)
+        for i in range(N_cameras):
+            ax.plot([coords[i, 0], lookat[0]], [coords[i, 1], lookat[1]], 'green', alpha=0.5, zorder=1)
+    ax.set_xlabel('X (km)')
+    ax.set_ylabel('Y (km)')
+    ax.set_title('Projection along Z (x–y)')
+    ax.set_aspect('equal', adjustable='box')
+    ax.grid(True, alpha=0.3)
+    for idx in range(N_cameras):
+        ax.annotate(f'Cam {idx}', (coords[idx, 0], coords[idx, 1]), textcoords='offset points', xytext=(5, 5), fontsize=8)
+
+    fig.suptitle(f'Camera positions (N={N_cameras}) — 2D projections', fontsize=12)
+    plt.tight_layout()
+
+    if save_path is not None:
+        safe_mkdirs(os.path.dirname(save_path))
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
 
 
 def visualize_satellite_positions(sat_positions_before, sat_positions_after, title_suffix="", save_path=None):

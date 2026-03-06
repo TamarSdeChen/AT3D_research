@@ -1,0 +1,102 @@
+import os
+import sys
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # non-interactive backend: save only, no display
+import matplotlib.pyplot as plt
+
+# Allow importing from CloudCT
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from CloudCTUtils import plot_circular_camera_distribution, plot_camera_positions_projections, calculate_zenith_angles, sample_camera_locations_randomized,sample_camera_locations_zenith_varied
+
+def calculate_delta_omega(R_max, R_earth, R_sat):
+    opposite = R_max / 2.0
+    adjacent = R_earth + R_sat
+    theta = np.arctan(opposite / adjacent)
+    return 2.0 * theta
+
+def sample_camera_locations_zenith_varied_v2(N, R_sat, R_earth, delta_omega, safe_dist_km=200):
+    camera_locations = []
+    R_total = R_earth + R_sat 
+    
+    # Define a range for Theta (Zenith variety)
+    # For example: +/- 5 degrees around the center theta
+    theta_center = delta_omega / 2.0
+    theta_variation = np.radians(5) 
+    theta_min_range = theta_center - theta_variation
+    theta_max_range = theta_center #+ theta_variation
+
+    # SAFETY: Use the smallest R_ring (smallest sin(theta)) to calculate buffer
+    # This guarantees the 200km gap even at the "tightest" part of the cone
+    min_theta_in_sample = min(theta_min_range, theta_max_range)
+    R_ring_min = R_total * np.sin(min_theta_in_sample)
+    
+    phi_safe_total = safe_dist_km / R_ring_min
+    phi_buffer = phi_safe_total / 2.0
+    bin_width = (2 * np.pi / N)
+
+    if phi_safe_total >= bin_width:
+        raise ValueError("Cameras too crowded for safety distance.")
+
+    for i in range(N):
+        # 1. Randomized Zenith angle (Theta)
+        current_theta = np.random.uniform(theta_min_range, theta_max_range)
+        
+        # 2. Randomized Azimuth (Phi) within safe bin
+        phi_min = (bin_width * i) + phi_buffer
+        phi_max = (bin_width * (i + 1)) - phi_buffer
+        current_phi = np.random.uniform(phi_min, phi_max)
+        
+        # 3. Randomized Altitude (Radial distance)
+        # Adding +/- 20km variety in orbital height
+        current_R = R_total + np.random.uniform(0, 50)
+
+        # 4. Convert Spherical to Cartesian
+        x = current_R * np.sin(current_theta) * np.cos(current_phi)
+        y = current_R * np.sin(current_theta) * np.sin(current_phi)
+        z = current_R * np.cos(current_theta) - R_earth 
+
+        camera_locations.append([x, y, z])
+        
+    return np.array(camera_locations)
+
+# --- Parameters ---
+N_cameras = 10 
+R_max = 1000
+R_earth = 6371
+R_sat = 500
+
+d_omega = calculate_delta_omega(R_max, R_earth, R_sat)
+sat_positions = sample_camera_locations_randomized(N_cameras, R_sat, R_earth, d_omega, safe_dist_km=200)
+print(sat_positions)
+names = ["sat" + str(i + 1) for i in range(sat_positions.shape[1])]
+
+coords_km = np.asarray(sat_positions[0])
+zenith_angles_deg = calculate_zenith_angles(coords_km, R_earth)
+print("Zenith angles (deg from vertical) per camera:")
+for name, angle_deg in zip(names, zenith_angles_deg):
+    print(f"  {name}: {angle_deg:.2f} deg")
+
+# Output directory (create early so it exists even if something fails later)
+_script_dir = os.path.dirname(os.path.abspath(os.path.realpath(__file__)))
+out_dir = os.path.join(_script_dir, 'Figures', 'new_data')
+os.makedirs(out_dir, exist_ok=True)
+print(f"Saving figures to: {out_dir}")
+
+run_params = {'R_max': R_max, 'R_earth': R_earth, 'R_sat': R_sat}
+LOOKAT_ORIGIN = [0, 0, 0]
+
+# 3D circular camera distribution (same as in generate_data.py)
+sat_positions = sat_positions.reshape(1, -1, 3)
+plot_circular_camera_distribution(
+    sat_positions, run_params,
+    save_path=os.path.join(out_dir, 'circular_camera_distribution655.png'),
+    lookat=LOOKAT_ORIGIN
+)
+
+# 2D projections (along Y, X, Z)
+plot_camera_positions_projections(
+    sat_positions, run_params,
+    save_path=os.path.join(out_dir, 'camera_positions_projections.png'),
+    lookat=LOOKAT_ORIGIN
+)

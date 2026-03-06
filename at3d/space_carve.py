@@ -130,6 +130,8 @@ class SpaceCarver:
             delyp=self._pa.dely,
             zlevels=self._pa.zlevels
         )
+        self._xgrid = self._xgrid[:self._nx1] ## 
+        self._ygrid = self._ygrid[:self._ny1]
 
         self._npts, self._ncells, self._gridpos, self._gridptr, self._neighptr, \
         self._treeptr, self._cellflags = at3d.core.init_cell_structure(

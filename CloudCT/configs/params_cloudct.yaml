@@ -8,9 +8,14 @@ stokes: 'I'
 max_simultaneous_simulations: 1  # how many clouds running in parallel
 IS_SUN_CONST: 1
 cancel_noise: False
+plot_simulation_images: False  # if True, plot one figure for all clean images and one for all noise images
+plot_simulation_images_path: '/wdata/tamarsd/AT3D_research/CloudCT/Figures/simulation_images'  # directory where figures are saved
+plot_mip: False  # if True, plot MIP (max intensity projection) for cloud extinction
+plot_mip_axis: 'z'  # axis along which to project: 'x', 'y', or 'z' (for grid order x,y,z)
+plot_mip_path: '/wdata/tamarsd/AT3D_research/CloudCT/Figures/mip'  # directory where MIP figures are saved (per cloud: cloud_<id>/mip_<axis>.png)
 
 # CloudCT-specific parameters
-SATS_NUMBER: 10
+
 wavelengths: [[0.620, 0.670]]
 radiance_thresholds: [0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255]  # SATS_NUMBER * [0.0255]
 images_path_for_nn: '/wdata/tamarsd/NN_Data/exp04/AT3D/'
@@ -21,7 +26,14 @@ use_sunsync_file: True
 sunsync_file_path: "/wdata_visl/inbalkom/NN_Data/sunsync_satellite_EROSB_sun_angles_and_sat_dir.pkl"
 zenith_thr: 100
 num_of_sun_locations: 5
-Rsat: 500  # km
+R_sat: 500  # km
+R_max: 700
+R_earth: 6371
+SATS_NUMBER: 10
+
+        
+        
+
 GSD: 0.02  # in km, it is the ground spatial resolution
 const_sun_azimuth: 45
 const_sun_zenith: 150

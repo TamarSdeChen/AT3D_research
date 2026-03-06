@@ -151,7 +151,7 @@ def setup_imagers(params, sun_zenith):
         # TODO -  use here pysat or pyEpham package to predict the orbital position of the nadir view sattelite and the SZA.
 
         imager.change_temperature(params['temperature']-273.15)  # convert Kelvin to Celcius
-        imager.set_Imager_altitude(H=params['Rsat'])  # in km
+        imager.set_Imager_altitude(H=params['R_sat'])  # in km
         imager.IS_VALIDE_LENS_DIAMETER()
 
         if imager.IS_HAS_POLARIZATION():
@@ -816,7 +816,7 @@ def add_noise_to_images(run_params, sensor_dict, sun_zenith, sat_names, cnx, cny
     assert len(run_params['stokes']) == 1, f"The stokes number MUST be 1 and not {len(run_params['stokes'])}"
     num_stokes = len(run_params['stokes'])
     N_channels = len(run_params['wavelengths'])
-    Rsat = run_params['Rsat']
+    Rsat = run_params['R_sat']
     GSD = run_params['GSD']
     cancel_noise = run_params['cancel_noise']
     radiances_per_imager = np.array(create_images_list(sensor_dict, run_params['stokes'], sat_names)) # return a lise of 10 images, each image with size 1,116,116
@@ -903,7 +903,7 @@ def add_noise_to_images(run_params, sensor_dict, sun_zenith, sat_names, cnx, cny
 def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat_names, cnx, cny):
     num_stokes = len(run_params['stokes'])
     N_channels = len(run_params['wavelengths'])
-    Rsat = run_params['Rsat']
+    Rsat = run_params['R_sat']
     GSD = run_params['GSD']
     cancel_noise = run_params['cancel_noise']
     radiances_per_imager_meridian_frame = np.array(create_images_list(sensor_dict, run_params['stokes'], sat_names))

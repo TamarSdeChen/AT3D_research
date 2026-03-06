@@ -28,6 +28,8 @@ import yaml
 r_earth = 6371.0  # km
 origin, xaxis, yaxis, zaxis = [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]
 
+
+
 def main(clouds_path, config_path="configs/params_cloudct.yaml"):
     run_params = load_run_params(params_path=config_path)
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
@@ -149,95 +151,79 @@ def run_simulation(args):
     only_coud_extinction = np.array(only_cloud_optical_properties[mean_wavelengths[0]].extinction)
     # Calculate extinction from optical properties
 
+    n_nonzero = np.count_nonzero(only_coud_extinction)
+    if n_nonzero < 200:
+        print(f'Skipping cloud {cloud_name}: only {n_nonzero} non-zero extinction voxels (< 200).')
+        return
+
+    if run_params.get('plot_mip', False):
+        mip_dir = run_params.get('plot_mip_path')
+        mip_axis = run_params.get('plot_mip_axis', 'z')
+        if mip_dir is not None:
+            axis_name = str(mip_axis).lower() if isinstance(mip_axis, str) else ('x', 'y', 'z')[int(mip_axis)]
+            mip_path = os.path.join(mip_dir, f'cloud_{cloud_name}', f'mip_{axis_name}.png')
+            plot_mip(only_coud_extinction, save_path=mip_path, title=f'Cloud {cloud_name} MIP ({axis_name})', axis=mip_axis)
+
     # one function to generate rayleigh scattering.
     rayleigh_scattering = at3d.rayleigh.to_grid(mean_wavelengths, atmosphere, rte_grid)
 
     solvers_dict = at3d.containers.SolversDict()
     # note we could set solver dependent surfaces / sources / numerical_config here
     # just as we have got solver dependent optical properties.
-    if run_params['IS_SUN_CONST'] and not run_params['apply_rotation']:
-        sun_location_num = 1
-        sun_azimuth_list = [run_params['const_sun_azimuth']]
-        sun_zenith_list = [run_params['const_sun_zenith']]
-        lat_list = [-999]
-        long_list = [-999]
-        utc_time_list = [0]
-        print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(run_params['const_sun_azimuth'], run_params['const_sun_zenith']))
-    elif run_params['apply_rotation']:
-        sun_location_num = 1
-        # Randomly sample rotation angle from 0 to 360 degrees
-        rotation_angle_deg = round(np.random.uniform(0, 360))
-        print(f"Rotation angle: {rotation_angle_deg} degrees")
-        new_zenith, new_azimuth  = rotate_sun_angles(run_params['const_sun_zenith'], run_params['const_sun_azimuth'], rotation_angle_deg)
-        sun_azimuth_list = [new_azimuth]
-        sun_zenith_list = [new_zenith]
-        lat_list = [-999]
-        long_list = [-999]
-        utc_time_list = [0]
-    else:
-        raise ValueError("Invalid option for sun")
-
+    
+    sun_azimuth= run_params['const_sun_azimuth']
+    sun_zenith = run_params['const_sun_zenith']
+        
     surface = at3d.surface.lambertian(0.05)
 
     cloud = {'images_noise': [],
-            #  'images_scatter': [],
              'images': [],
              'mask': [],
              'mask_morph': [],
              'cloud_path': cloud_params['path'],
-             'sun_zenith': np.array(sun_zenith_list),
-             'sun_azimuth': np.array(sun_azimuth_list),
-             'ray_mu': [],
-             'ray_phi': [],
+             'sun_zenith': sun_zenith,
+             'sun_azimuth': sun_azimuth,
              'cameras_pos': [],
              'cameras_P': [],
              'grid': [],
-             'not_cloudbow_startind': [],
-             'cloudbow_sample_angles': [],
-             'rotation_angle_deg': [],
              'ext': only_coud_extinction
              }
 
-    for location_idx, sun_zenith, sun_azimuth in zip(range(sun_location_num), sun_zenith_list, sun_azimuth_list):
-        print('beginning solving RTE for sun aug #{}/{}'.format(location_idx+1,sun_location_num))
-        for wavelength in mean_wavelengths:
-            medium = {
-                'cloud': optical_properties[wavelength],
-                'rayleigh': rayleigh_scattering[wavelength]
-            }
-            config = at3d.configuration.get_config()
+    
+    for wavelength in mean_wavelengths:
+        medium = {
+            'cloud': optical_properties[wavelength],
+            'rayleigh': rayleigh_scattering[wavelength]
+        }
+        config = at3d.configuration.get_config()
 
-            config['num_mu_bins'] = 8
-            config['num_phi_bins'] = 16
-            config['split_accuracies'] = 0.1
-            config['max_total_mb'] = 100000
-            
-            config['spherical_harmonics_accuracy'] = 0.01
-            config['num_sh_term_factor'] = 5
-            config['high_order_radiance'] = True
-            config['max_total_mb'] = 100000
+        config['num_mu_bins'] = 8
+        config['num_phi_bins'] = 16
+        config['split_accuracies'] = 0.1
+        config['max_total_mb'] = 100000
+        
+        config['spherical_harmonics_accuracy'] = 0.01
+        config['num_sh_term_factor'] = 5
+        config['high_order_radiance'] = True
+        config['max_total_mb'] = 100000
 
-            solvers_dict.add_solver(
-                wavelength,
-                at3d.solver.RTE(
-                    numerical_params=config,
-                    surface=surface,
-                    source=at3d.source.solar(wavelength, np.cos(sun_zenith * np.pi / 180), sun_azimuth),
-                    # np.cos((180-cam_zenith)*np.pi/180), cam_azimuth),
-                    medium=medium,
-                    num_stokes=1
-                )
-
+        solvers_dict.add_solver(
+            wavelength,
+            at3d.solver.RTE(
+                numerical_params=config,
+                surface=surface,
+                source=at3d.source.solar(wavelength, np.cos(sun_zenith * np.pi / 180), sun_azimuth),
+                medium=medium,
+                num_stokes=1
             )
+
+        )
 
         solvers_dict.solve(n_jobs=run_params['n_jobs'], maxiter=run_params['maxiter'])
 
         ##### define sensors #####
-        print('defining String of Pearls perspective sensors')
         GSD = run_params['GSD']  # km
-        Rsat = run_params['Rsat']  # km
         SATS_NUMBER_SETUP = run_params['SATS_NUMBER']
-        cloudbow_additional_scan = run_params['cloudbow_additional_scan']
         sensor_dict = at3d.containers.SensorsDict()
 
         xgrid = np.float32(cloud_scatterer.x.data)
@@ -253,7 +239,7 @@ def run_simulation(args):
         PIXEL_FOOTPRINT = GSD  # km
         L = max(xgrid.max() - xgrid.min(), ygrid.max() - ygrid.min())
 
-        fov = 2 * np.rad2deg(np.arctan(0.5 * L / (Rsat)))
+        fov = 2 * np.rad2deg(np.arctan(0.5 * L / (run_params['R_sat'])))
         cny = int(np.floor(L / PIXEL_FOOTPRINT))
         cnx = int(np.floor(L / PIXEL_FOOTPRINT))
 
@@ -264,7 +250,7 @@ def run_simulation(args):
         # --- TUNE FOV, CNY,CNX:
         if (IFTUNE_CAM):
             L *= run_params['tune_scalar']
-            fov = 2 * np.rad2deg(np.arctan(0.5 * L / (Rsat)))
+            fov = 2 * np.rad2deg(np.arctan(0.5 * L / (run_params['R_sat'])))
             cny = int(np.floor(L / PIXEL_FOOTPRINT))
             cnx = int(np.floor(L / PIXEL_FOOTPRINT))
 
@@ -274,8 +260,7 @@ def run_simulation(args):
         if (IFTUNE_CAM):
             LOOKAT[2] = 0.68 * nx * dz  # tuning. if IFTUNE_CAM = False, just lookat the bottom
 
-        SAT_LOOKATS = np.array(SATS_NUMBER_SETUP * LOOKAT).reshape(-1,
-                                                                   3)  # currently, all satellites lookat the same point.
+        SAT_LOOKATS = np.array(SATS_NUMBER_SETUP * LOOKAT).reshape(-1,3)  # currently, all satellites lookat the same point.
 
         print(20 * "-")
  
@@ -283,46 +268,24 @@ def run_simulation(args):
         print("fov = {}[deg], cnx = {}[pixels],cny ={}[pixels]".format(fov, cnx, cny))
 
         print(20 * "-")
-  
+
        
-        DX_LIMIT = 0 
-        DY_LIMIT = 0
-        DZ_LIMIT = 0
-
-        sat_positions, near_nadir_indices, theta_max, theta_min = \
-            CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
-                                        ORBIT_ALTITUDE=Rsat,
-                                        move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-                                        move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1],
-                                        DX=DX_LIMIT, DY=DY_LIMIT, DZ=DZ_LIMIT,
-                                        N=1) 
-
-        # we intentionally, work with projections lists.
+        d_omega = calculate_delta_omega(run_params['R_max'], run_params['R_earth'], run_params['R_sat'])
+        print(f"Delta Omega: {d_omega:.4f} rad ({np.degrees(d_omega):.2f} degrees)")
+        sat_positions = sample_camera_locations_randomized(run_params['SATS_NUMBER'], run_params['R_sat'], run_params['R_earth'], d_omega)
         up_list = np.array(sat_positions.shape[1] * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
         
-        # Apply rotation if specified
-        if run_params['apply_rotation']:
-            # Store original positions for visualization
-            sat_positions_before = sat_positions.copy()
-            
-            
-            
-            ROT_TOTAL, ROT_Z = setup_rotation_matrices(rotation_angle_deg, LOOKAT)
-            sat_positions_rotated, up_list_rotated = apply_rotation_to_sensor_positions(
-                sat_positions, ROT_TOTAL, ROT_Z, up_list
-            )
-            # Update sat_positions to use rotated positions (maintain shape (1, N, 3))
-            sat_positions = sat_positions_rotated.reshape(1, -1, 3)
-            up_list = up_list_rotated
-            
-        else:
-            rotation_angle_deg = None
-
+ 
         names = ["sat" + str(i + 1) for i in range(sat_positions.shape[1])]
+
+        # # Zenith angle (from vertical) per camera
+        # coords_km = np.asarray(sat_positions[0])
+        # zenith_angles_deg = calculate_zenith_angles(coords_km, run_params['R_earth'])
+        # print("Zenith angles (deg from vertical) per camera:")
+        # for name, angle_deg in zip(names, zenith_angles_deg):
+        #     print(f"  {name}: {angle_deg:.2f} deg")
         
-        #no cloudbow scan here
-        cloudbow_sample_angles = None
-        not_cloudbow_startind = None
+        
         
         for mean_wavelength in mean_wavelengths:
             for position_vector, lookat_vector, up_vector in zip(sat_positions[0],
@@ -361,6 +324,27 @@ def run_simulation(args):
             images_noise = add_noise_to_images(run_params, sensor_dict_clean, sun_zenith, names, cnx, cny) # return 10,116,116,1 
         else:
             images_clean=[]
+
+        # if run_params.get('plot_simulation_images', False):
+        #     images_noise_for_plot = None
+        #     if not run_params['cancel_noise']:
+        #         images_noise_for_plot = np.array(images_noise)[..., 0]
+        #     save_dir = run_params.get('plot_simulation_images_path')
+        #     if save_dir is not None:
+        #         save_dir = os.path.join(save_dir, f'cloud_{cloud_name}')
+        #     plot_simulation_images(images_clean, images_noise_for_plot, show=True, save_dir=save_dir)
+
+        #     # Optional: visualize satellite positions in a circular configuration,
+        #     # including the common look-at point and lines from each camera to it.
+        #     sat_vis_path = None
+        #     if save_dir is not None:
+        #         sat_vis_path = os.path.join(save_dir, 'circular_camera_distribution.png')
+        #         proj_vis_path = os.path.join(save_dir, 'camera_positions_projections.png')
+        #     else:
+        #         sat_vis_path = None
+        #         proj_vis_path = None
+        #     plot_circular_camera_distribution(sat_positions, run_params, save_path=sat_vis_path, lookat=LOOKAT)
+        #     plot_camera_positions_projections(sat_positions, run_params, save_path=proj_vis_path, lookat=LOOKAT)
 
         # ----------------------------------------------------
 
@@ -418,33 +402,15 @@ def run_simulation(args):
             # remove cloud mask values at outer boundaries to prevent interaction with open boundary conditions.
             # carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
 
-            cloud['images_noise'].append(np.array(images_noise)[..., 0])#list of 10 each item is 116,116,1
-            # cloud['images_scatter'].append(np.array(images_scatter))
-            cloud['images'].append(np.array(images_clean)) 
-            cloud['mask'].append(mask4file)
-            cloud['mask_morph'].append(mask_morph)
-            cloud['ray_mu'].append(np.array(ray_mu_list))
-            cloud['ray_phi'].append(np.array(ray_phi_list))
-            cloud['cameras_pos'].append(sat_positions)
-            cloud['cameras_P'].append(np.array(projection_matrices))
-            cloud['grid'].append(grid)
-            cloud['not_cloudbow_startind'].append(not_cloudbow_startind)
-            cloud['cloudbow_sample_angles'].append(cloudbow_sample_angles)
-            cloud['rotation_angle_deg'].append(rotation_angle_deg)
-
-    cloud['images_noise'] = np.array(cloud['images_noise'])
-    # cloud['images_scatter'] = np.array(cloud['images_scatter'])
-    cloud['images'] = np.array(cloud['images'])
-    cloud['mask'] = np.array(cloud['mask'])
-    cloud['mask_morph'] = np.array(cloud['mask_morph'])
-    cloud['ray_mu'] = np.array(cloud['ray_mu'])
-    cloud['ray_phi'] = np.array(cloud['ray_phi'])
-    cloud['cameras_pos'] = np.array(cloud['cameras_pos'])
-    cloud['cameras_P'] = np.array(cloud['cameras_P'])
-    cloud['grid'] = np.array(cloud['grid'])
-    cloud['not_cloudbow_startind'] = np.array(cloud['not_cloudbow_startind'])
-    cloud['cloudbow_sample_angles'] = np.array(cloud['cloudbow_sample_angles'])
-    cloud['rotation_angle_deg'] = np.array(cloud['rotation_angle_deg'])
+            cloud['images_noise'] = (np.array(images_noise)[..., 0])#list of 10 each item is 116,116,1
+            cloud['images'] = (np.array(images_clean)) 
+            cloud['mask'] = (mask4file)
+            cloud['mask_morph'] = (mask_morph)
+            cloud['cameras_pos'] = (sat_positions)
+            cloud['cameras_P'] = (np.array(projection_matrices))
+            cloud['grid'] = (grid)
+            
+    
 
 
     if not os.path.exists(os.path.join(run_params['images_path_for_nn'], path_stamp)):
@@ -573,7 +539,8 @@ if __name__ == '__main__':
     # Change this path to use either params_cloudct.yaml or params_airmspi.yaml
     config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml"
     run_params = load_run_params(params_path=config_path)
-    clouds_path = "/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
+    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+    #"/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
     #
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
