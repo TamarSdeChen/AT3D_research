@@ -154,13 +154,13 @@ def run_simulation(args):
         print(f'Skipping cloud {cloud_name}: only {n_nonzero} non-zero extinction voxels (< 200).')
         return
 
-    if run_params.get('plot_mip', False):
-        mip_dir = run_params.get('plot_mip_path')
-        mip_axis = run_params.get('plot_mip_axis', 'z')
-        if mip_dir is not None:
-            axis_name = str(mip_axis).lower() if isinstance(mip_axis, str) else ('x', 'y', 'z')[int(mip_axis)]
-            mip_path = os.path.join(mip_dir, f'cloud_{cloud_name}', f'mip_{axis_name}.png')
-            plot_mip(only_coud_extinction, save_path=mip_path, title=f'Cloud {cloud_name} MIP ({axis_name})', axis=mip_axis)
+    # if run_params.get('plot_mip', False):
+    #     mip_dir = run_params.get('plot_mip_path')
+    #     mip_axis = run_params.get('plot_mip_axis', 'z')
+    #     if mip_dir is not None:
+    #         axis_name = str(mip_axis).lower() if isinstance(mip_axis, str) else ('x', 'y', 'z')[int(mip_axis)]
+    #         mip_path = os.path.join(mip_dir, f'cloud_{cloud_name}', f'mip_{axis_name}.png')
+    #         plot_mip(only_coud_extinction, save_path=mip_path, title=f'Cloud {cloud_name} MIP ({axis_name})', axis=mip_axis)
 
     # one function to generate rayleigh scattering.
     rayleigh_scattering = at3d.rayleigh.to_grid(mean_wavelengths, atmosphere, rte_grid)
