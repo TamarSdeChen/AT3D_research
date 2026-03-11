@@ -48,8 +48,8 @@ def main(clouds_path, config_path="configs/params_cloudct.yaml"):
 def simple_main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
-    
-    for cloud_id in cloud_ids:
+    n = int(len(cloud_ids)/2 )
+    for cloud_id in cloud_ids[:n]:
         cloud_name = str(cloud_id)
         cloud_path = '/'.join(clouds_path.split('/')[:-1])+'/cloud'+cloud_name+'.txt'
         cloud_params = dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)])

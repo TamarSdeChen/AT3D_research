@@ -45,6 +45,7 @@ def calculate_delta_omega(R_max, R_earth, R_sat):
     return 2.0 * theta
 
 
+import numpy as np
 
 def sample_camera_locations_randomized(N, R_sat, R_earth, delta_omega, safe_dist_km=100):
     camera_locations = []
@@ -62,60 +63,69 @@ def sample_camera_locations_randomized(N, R_sat, R_earth, delta_omega, safe_dist
         raise ValueError(f"Number of cameras {N} is too high for a {safe_dist_km}km safety distance.")
 
     chosen_bins = np.random.choice(total_bins, size=N-1, replace=False)
-
-    for bin_idx in chosen_bins:
-        phi_bin_start = bin_width * bin_idx
-        phi_bin_end = bin_width * (bin_idx + 1)
-        
-        phi_min = phi_bin_start + phi_buffer
-        phi_max = phi_bin_end - phi_buffer
-        
-        # --- NEW: Rejection Sampling Loop ---
-        valid_position = False
-        attempts = 0
-        
-        while not valid_position and attempts < 50:
-            phi = np.random.uniform(phi_min, phi_max)
-            
-            x = R_total * np.sin(theta) * np.cos(phi)
-            y = R_total * np.sin(theta) * np.sin(phi)
-            z = R_total * np.cos(theta) - R_earth
-
-            delta_x = np.random.uniform(50, 100) * np.random.choice([-1, 1])
-            delta_y = np.random.uniform(50, 100) * np.random.choice([-1, 1])
-            delta_z = np.random.uniform(30, 50) 
-            
-            test_x = x + delta_x
-            test_y = y + delta_y
-            test_z = z + delta_z
-            
-            # Check Euclidean distance against all PREVIOUSLY placed cameras
-            conflict = False
-            for loc in camera_locations:
-                dist = np.sqrt((test_x - loc[0])**2 + (test_y - loc[1])**2 + (test_z - loc[2])**2)
-                if dist < safe_dist_km:
-                    conflict = True
-                    break # Too close! Break loop and try a new random shift
-            
-            if not conflict:
-                # If it passed the distance check, save it and move to next bin
-                camera_locations.append([test_x, test_y, test_z])
-                valid_position = True
-            
-            attempts += 1
-            
-        # Fallback if the perturbations are physically impossible to resolve
-        if not valid_position:
-            print(f"Warning: Dropped perturbation for bin {bin_idx} to maintain safe distance.")
-            camera_locations.append([x, y, z]) # Revert to unperturbed baseline
-            
-    # Zenith Camera Placement
-    delta_x_zenith = np.random.uniform(50, 100) * np.random.choice([-1, 1])
-    delta_y_zenith = np.random.uniform(50, 100) * np.random.choice([-1, 1])
-    z_zenith = R_sat + np.random.uniform(30, 50)
+    bin_iterator = iter(chosen_bins)
     
-    camera_locations.append([delta_x_zenith, delta_y_zenith, z_zenith])
-    
+    # 1. Randomly decide the zenith camera's position in the sequence
+    zenith_idx = np.random.randint(0, N)
+
+    # 2. Main generation loop
+    for i in range(N):
+        if i == zenith_idx:
+            # --- Zenith Camera Placement (No safety checks) ---
+            delta_x_zenith = np.random.uniform(0, 20) * np.random.choice([-1, 1])
+            delta_y_zenith = np.random.uniform(0, 20) * np.random.choice([-1, 1])
+            z_zenith = R_sat + np.random.uniform(30, 50)
+            
+            camera_locations.append([delta_x_zenith, delta_y_zenith, z_zenith])
+        
+        else:
+            # --- Ring Camera Placement ---
+            bin_idx = next(bin_iterator)
+            phi_bin_start = bin_width * bin_idx
+            phi_bin_end = bin_width * (bin_idx + 1)
+            
+            phi_min = phi_bin_start + phi_buffer
+            phi_max = phi_bin_end - phi_buffer
+            
+            # --- NEW: Rejection Sampling Loop ---
+            valid_position = False
+            attempts = 0
+            
+            while not valid_position and attempts < 50:
+                phi = np.random.uniform(phi_min, phi_max)
+                
+                x = R_total * np.sin(theta) * np.cos(phi)
+                y = R_total * np.sin(theta) * np.sin(phi)
+                z = R_total * np.cos(theta) - R_earth
+
+                delta_x = np.random.uniform(50, 100) * np.random.choice([-1, 1])
+                delta_y = np.random.uniform(50, 100) * np.random.choice([-1, 1])
+                delta_z = np.random.uniform(30, 50) 
+                
+                test_x = x + delta_x
+                test_y = y + delta_y
+                test_z = z + delta_z
+                
+                # Check Euclidean distance against all PREVIOUSLY placed cameras
+                conflict = False
+                for loc in camera_locations:
+                    dist = np.sqrt((test_x - loc[0])**2 + (test_y - loc[1])**2 + (test_z - loc[2])**2)
+                    if dist < safe_dist_km:
+                        conflict = True
+                        break # Too close! Break loop and try a new random shift
+                
+                if not conflict:
+                    # If it passed the distance check, save it and move to next bin
+                    camera_locations.append([test_x, test_y, test_z])
+                    valid_position = True
+                
+                attempts += 1
+                
+            # Fallback if the perturbations are physically impossible to resolve
+            if not valid_position:
+                print(f"Warning: Dropped perturbation for bin {bin_idx} to maintain safe distance.")
+                camera_locations.append([x, y, z]) # Revert to unperturbed baseline
+                
     return np.array(camera_locations).reshape(1, -1, 3)
 
 def sample_camera_locations_zenith_varied(N, R_sat, R_earth, delta_omega, safe_dist_km=200):
