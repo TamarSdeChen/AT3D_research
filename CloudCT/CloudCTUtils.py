@@ -46,7 +46,7 @@ def calculate_delta_omega(R_max, R_earth, R_sat):
 
 
 
-def sample_camera_locations_randomized(N, R_sat, R_earth, delta_omega, safe_dist_km=200):
+def sample_camera_locations_randomized(N, R_sat, R_earth, delta_omega, safe_dist_km=100):
     camera_locations = []
     R_total = R_earth + R_sat 
     theta = delta_omega / 2.0 
