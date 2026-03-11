@@ -48,8 +48,7 @@ def main(clouds_path, config_path="configs/params_cloudct.yaml"):
 def simple_main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
-    # cloud_ids = [6004]
-    # cloud_ids = [350]
+    
     for cloud_id in cloud_ids:
         cloud_name = str(cloud_id)
         cloud_path = '/'.join(clouds_path.split('/')[:-1])+'/cloud'+cloud_name+'.txt'
@@ -63,7 +62,7 @@ def run_simulation(args):
     run_params, (cloud_name, cloud_params) = args
     print(f"Simulation of cloud {cloud_name} is running.")
    
-    path_stamp = 'const_sun_const_rotation_no_perturbation'
+    path_stamp = 'train'
     filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
                             'cloud_results_' + cloud_name + '.pkl')
 
@@ -121,7 +120,6 @@ def run_simulation(args):
             wavelength_averaging = True
             formatstr = 'mie_mono_averaged_Water_{}-{}nm.nc'.format(int(1e3 * wavelength_band[0]),
                                                                     int(1e3 * wavelength_band[1]))
-        mono_path = os.path.join('/wdata/inbalkom/AT3D_CloudCT_shared_files/mie_tables', formatstr)
         mie_mono_table = at3d.mie.get_mono_table(
             'Water', wavelength_band_tuple,
             wavelength_averaging=wavelength_averaging,
@@ -152,7 +150,7 @@ def run_simulation(args):
     # Calculate extinction from optical properties
 
     n_nonzero = np.count_nonzero(only_coud_extinction)
-    if n_nonzero < 200:
+    if n_nonzero < 10:
         print(f'Skipping cloud {cloud_name}: only {n_nonzero} non-zero extinction voxels (< 200).')
         return
 
@@ -325,26 +323,26 @@ def run_simulation(args):
         else:
             images_clean=[]
 
-        # if run_params.get('plot_simulation_images', False):
-        #     images_noise_for_plot = None
-        #     if not run_params['cancel_noise']:
-        #         images_noise_for_plot = np.array(images_noise)[..., 0]
-        #     save_dir = run_params.get('plot_simulation_images_path')
-        #     if save_dir is not None:
-        #         save_dir = os.path.join(save_dir, f'cloud_{cloud_name}')
-        #     plot_simulation_images(images_clean, images_noise_for_plot, show=True, save_dir=save_dir)
+        if run_params.get('plot_simulation_images', False):
+            images_noise_for_plot = None
+            if not run_params['cancel_noise']:
+                images_noise_for_plot = np.array(images_noise)[..., 0]
+            save_dir = run_params.get('plot_simulation_images_path')
+            if save_dir is not None:
+                save_dir = os.path.join(save_dir, f'cloud_{cloud_name}')
+            plot_simulation_images(images_clean, images_noise_for_plot, show=True, save_dir=save_dir)
 
-        #     # Optional: visualize satellite positions in a circular configuration,
-        #     # including the common look-at point and lines from each camera to it.
-        #     sat_vis_path = None
-        #     if save_dir is not None:
-        #         sat_vis_path = os.path.join(save_dir, 'circular_camera_distribution.png')
-        #         proj_vis_path = os.path.join(save_dir, 'camera_positions_projections.png')
-        #     else:
-        #         sat_vis_path = None
-        #         proj_vis_path = None
-        #     plot_circular_camera_distribution(sat_positions, run_params, save_path=sat_vis_path, lookat=LOOKAT)
-        #     plot_camera_positions_projections(sat_positions, run_params, save_path=proj_vis_path, lookat=LOOKAT)
+            # Optional: visualize satellite positions in a circular configuration,
+            # including the common look-at point and lines from each camera to it.
+            sat_vis_path = None
+            if save_dir is not None:
+                sat_vis_path = os.path.join(save_dir, 'circular_camera_distribution.png')
+                proj_vis_path = os.path.join(save_dir, 'camera_positions_projections.png')
+            else:
+                sat_vis_path = None
+                proj_vis_path = None
+            plot_circular_camera_distribution(sat_positions, run_params, save_path=sat_vis_path, lookat=LOOKAT)
+            plot_camera_positions_projections(sat_positions, run_params, save_path=proj_vis_path, lookat=LOOKAT)
 
         # ----------------------------------------------------
 
@@ -540,6 +538,10 @@ if __name__ == '__main__':
     config_path = "/wdata/tamarsd/AT3D_research/CloudCT/configs/params_cloudct.yaml"
     run_params = load_run_params(params_path=config_path)
     clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+    # "/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt" - CASS 
+   
+    # "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+    
     #"/wdata/tamarsd/DATA_7_CLOUDS_TEXT/fast/cloud*.txt"
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
     #
