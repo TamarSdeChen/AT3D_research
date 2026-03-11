@@ -276,12 +276,12 @@ def run_simulation(args):
  
         names = ["sat" + str(i + 1) for i in range(sat_positions.shape[1])]
 
-        # # Zenith angle (from vertical) per camera
-        # coords_km = np.asarray(sat_positions[0])
-        # zenith_angles_deg = calculate_zenith_angles(coords_km, run_params['R_earth'])
-        # print("Zenith angles (deg from vertical) per camera:")
-        # for name, angle_deg in zip(names, zenith_angles_deg):
-        #     print(f"  {name}: {angle_deg:.2f} deg")
+        # Zenith angle (from vertical) per camera
+        coords_km = np.asarray(sat_positions[0])
+        zenith_angles_deg = calculate_zenith_angles(coords_km, run_params['R_earth'])
+        print("Zenith angles (deg from vertical) per camera:")
+        for name, angle_deg in zip(names, zenith_angles_deg):
+            print(f"  {name}: {angle_deg:.2f} deg")
         
         
         

@@ -44,62 +44,79 @@ def calculate_delta_omega(R_max, R_earth, R_sat):
     theta = np.arctan(opposite / adjacent)
     return 2.0 * theta
 
+
+
 def sample_camera_locations_randomized(N, R_sat, R_earth, delta_omega, safe_dist_km=200):
     camera_locations = []
     R_total = R_earth + R_sat 
     theta = delta_omega / 2.0 
     
-    # Calculate the radius of the ring at this altitude/angle
     R_ring = R_total * np.sin(theta)
-    
-    # Calculate the angular buffer required for the safe distance
-    # s = r * phi  =>  phi = s / r
     phi_safe_total = safe_dist_km / R_ring
-    
-    # Each bin needs to "give up" half the safety distance at each boundary
     phi_buffer = phi_safe_total / 2.0
     
-    bin_width = (2 * np.pi / N)
+    total_bins = N
+    bin_width = (2 * np.pi / total_bins)
     
-    # Safety Check: Ensure the bin is actually large enough to hold a 200km gap
     if phi_safe_total >= bin_width:
         raise ValueError(f"Number of cameras {N} is too high for a {safe_dist_km}km safety distance.")
 
-    for i in range(N-1):
-        # 1. Calculate the standard bin boundaries
-        phi_bin_start = bin_width * i
-        phi_bin_end = bin_width * (i + 1)
+    chosen_bins = np.random.choice(total_bins, size=N-1, replace=False)
+
+    for bin_idx in chosen_bins:
+        phi_bin_start = bin_width * bin_idx
+        phi_bin_end = bin_width * (bin_idx + 1)
         
-        # 2. Constrain the sampling range by the buffer
-        # This ensures a minimum of 'safe_dist_km' between any two cameras
         phi_min = phi_bin_start + phi_buffer
         phi_max = phi_bin_end - phi_buffer
         
-        # 3. Sample phi within the safe sub-bin
-        phi = np.random.uniform(phi_min, phi_max)
+        # --- NEW: Rejection Sampling Loop ---
+        valid_position = False
+        attempts = 0
         
-        # 4. Calculate coordinates relative to Earth surface
-        x = R_total * np.sin(theta) * np.cos(phi)
-        y = R_total * np.sin(theta) * np.sin(phi)
-        z = R_total * np.cos(theta) - R_earth
+        while not valid_position and attempts < 50:
+            phi = np.random.uniform(phi_min, phi_max)
+            
+            x = R_total * np.sin(theta) * np.cos(phi)
+            y = R_total * np.sin(theta) * np.sin(phi)
+            z = R_total * np.cos(theta) - R_earth
 
-        # 5. Perturbation (Note: perturbation might slightly reduce safety distance,
-        # but 30-50km on a 200km buffer usually leaves plenty of room)
-        delta_x = np.random.uniform(50, 100) * np.random.choice([-1, 1])
-        delta_y = np.random.uniform(50, 100) * np.random.choice([-1, 1])
-        delta_z = np.random.uniform(30, 50) 
-        
-        x += delta_x
-        y += delta_y
-        z += delta_z
-
-        camera_locations.append([x, y, z])
-    
+            delta_x = np.random.uniform(50, 100) * np.random.choice([-1, 1])
+            delta_y = np.random.uniform(50, 100) * np.random.choice([-1, 1])
+            delta_z = np.random.uniform(30, 50) 
+            
+            test_x = x + delta_x
+            test_y = y + delta_y
+            test_z = z + delta_z
+            
+            # Check Euclidean distance against all PREVIOUSLY placed cameras
+            conflict = False
+            for loc in camera_locations:
+                dist = np.sqrt((test_x - loc[0])**2 + (test_y - loc[1])**2 + (test_z - loc[2])**2)
+                if dist < safe_dist_km:
+                    conflict = True
+                    break # Too close! Break loop and try a new random shift
+            
+            if not conflict:
+                # If it passed the distance check, save it and move to next bin
+                camera_locations.append([test_x, test_y, test_z])
+                valid_position = True
+            
+            attempts += 1
+            
+        # Fallback if the perturbations are physically impossible to resolve
+        if not valid_position:
+            print(f"Warning: Dropped perturbation for bin {bin_idx} to maintain safe distance.")
+            camera_locations.append([x, y, z]) # Revert to unperturbed baseline
+            
+    # Zenith Camera Placement
+    delta_x_zenith = np.random.uniform(50, 100) * np.random.choice([-1, 1])
+    delta_y_zenith = np.random.uniform(50, 100) * np.random.choice([-1, 1])
     z_zenith = R_sat + np.random.uniform(30, 50)
-    camera_locations.append([delta_x, delta_y, z_zenith])
+    
+    camera_locations.append([delta_x_zenith, delta_y_zenith, z_zenith])
+    
     return np.array(camera_locations).reshape(1, -1, 3)
-
-import numpy as np
 
 def sample_camera_locations_zenith_varied(N, R_sat, R_earth, delta_omega, safe_dist_km=200):
     camera_locations = []
