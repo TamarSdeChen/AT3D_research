@@ -1,6 +1,6 @@
 # CloudCT Configuration
 # Base parameters
-
+USER: 'Vadim' # or Tamar :)
 IF_NEW_TXT: False
 n_jobs: 4
 maxiter: 150
@@ -13,6 +13,17 @@ plot_simulation_images_path: '/wdata/tamarsd/AT3D_research/CloudCT/Figures/simul
 plot_mip: False  # if True, plot MIP (max intensity projection) for cloud extinction
 plot_mip_axis: 'z'  # axis along which to project: 'x', 'y', or 'z' (for grid order x,y,z)
 plot_mip_path: '/wdata/tamarsd/AT3D_research/CloudCT/Figures/mip'  # directory where MIP figures are saved (per cloud: cloud_<id>/mip_<axis>.png)
+use_ocean_brdf: True # if it is False, use Lambertian surface as Roi, Yael and Inbal. If True, we use the ocean_unpolarized that simulates ocean BRDF.
+ocean_wind_speed: 5
+# A value of 5 m/s (roughly 11 mph or a "gentle breeze") is an excellent baseline for an ocean simulation.
+#   Effect on Glint: At 5 m/s, the Cox-Munk wave slope model will generate a sunglint pattern that is
+#   distinctly visible but moderately spread out. If you drop it to 1 m/s, the glint will become a tiny, 
+#   blindingly bright point. If you raise it to 15 m/s, 
+#   the glint will smear out over a wide swath of the image but we will not see differences since we simulate narrow FOV.
+#   The wind direction is hardcoded to an azimuth of 0.0 in this specific AT3D implementation, meaning the waves are aligned 
+#   with the grid, which is standard for 1D/simplified surface boundary tests.
+
+
 
 # CloudCT-specific parameters
 

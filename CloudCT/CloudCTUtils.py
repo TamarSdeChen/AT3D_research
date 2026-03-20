@@ -74,7 +74,7 @@ def sample_camera_locations_randomized(N, R_sat, R_earth, delta_omega, safe_dist
             # --- Zenith Camera Placement (No safety checks) ---
             delta_x_zenith = np.random.uniform(0, 20) * np.random.choice([-1, 1])
             delta_y_zenith = np.random.uniform(0, 20) * np.random.choice([-1, 1])
-            z_zenith = R_sat + np.random.uniform(30, 50)
+            z_zenith = R_sat + np.random.uniform(0, 10) * np.random.choice([-1, 1])
             
             camera_locations.append([delta_x_zenith, delta_y_zenith, z_zenith])
         
