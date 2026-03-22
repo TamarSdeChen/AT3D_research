@@ -22,49 +22,101 @@ from CloudCTUtils import *
 from CloudCT_NoiseUtils import *
 import matplotlib
 import yaml
+import argparse
+from itertools import repeat
 # matplotlib.use('TkAgg')
 
 # constants
 r_earth = 6371.0  # km
 origin, xaxis, yaxis, zaxis = [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]
 
+# Function to extract the integer from strings like 'cloud1005.txt'
+def extract_index(filepath):
+    filename = os.path.basename(filepath)
+    # Find all numbers in the filename and take the first one
+    numbers = re.findall(r'\d+', filename)
+    return int(numbers[0]) if numbers else -1
 
+def get_sorted_clouds(base_path):
+    """Finds all cloud txt files and sorts them numerically by their index."""
+    search_pattern = os.path.join(base_path, 'cloud*.txt')
+    cloud_files = glob.glob(search_pattern)
+    # Sort files based on the extracted numerical index
+    cloud_files.sort(key=extract_index)
+    return cloud_files
 
+def get_clouds2run(base_dir):
+    
+    # 1. Setup Command Line Arguments
+    parser = argparse.ArgumentParser(description="Run distributed cloud simulations.")
+    parser.add_argument('--start', type=int, default=0, help="Start index (inclusive)")
+    parser.add_argument('--end', type=int, default=None, help="End index (exclusive)")
+    args = parser.parse_args()
+
+    # 2. Get and sort all files
+    all_clouds = get_sorted_clouds(base_dir)
+    total_clouds = len(all_clouds)
+    
+    print(f"Found a total of {total_clouds} cloud files.")
+
+    # 3. Slice the list for this specific computer
+    start_idx = args.start
+    end_idx = args.end if args.end is not None else total_clouds
+    
+    # Ensure indices make sense
+    start_idx = max(0, start_idx)
+    end_idx = min(total_clouds, end_idx)
+    
+    clouds_to_run = all_clouds[start_idx:end_idx]
+    return clouds_to_run
+        
 def main(clouds_path, config_path="configs/params_cloudct.yaml"):
     run_params = load_run_params(params_path=config_path)
-    cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
-                 glob.glob(clouds_path)]
+    clouds_to_run = get_clouds2run(clouds_path)
+    
+    cloud_ids = [extract_index(cloud_path) for cloud_path in clouds_to_run]
+    clouds_params = [dict([('path', cloud_path)]) for cloud_path in clouds_to_run]    
 
-    all_cloud_paths = ['/'.join(clouds_path.split('/')[:-1]) + '/cloud' + str(cloud_id) + '.txt' for cloud_id in cloud_ids]
-    clouds_params = [dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)]) for cloud_path in all_cloud_paths]
     clouds = [(str(cloud_id), cloud_params) for cloud_id, cloud_params in zip(cloud_ids, clouds_params)]
 
-
-    with Pool(processes=run_params['max_simultaneous_simulations']) as p:
-        p.map(run_simulation, zip(repeat(run_params), clouds))
+    # Run the simulations in parallel
+    if not clouds_to_run:
+        print("No clouds to process in this range. Exiting.")
+    else:
+        print(f"Starting Pool with {run_params['max_simultaneous_simulations']} processes...")
+        with Pool(processes=run_params['max_simultaneous_simulations']) as p:
+            p.map(run_simulation, zip(repeat(run_params), clouds))
 
     print('finished successfully.')
 
-def simple_main(run_params, clouds_path):
-    cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
-                 glob.glob(clouds_path)]
-    n = int(len(cloud_ids)/3)
-    for cloud_id in cloud_ids[:n]:
-        cloud_name = str(cloud_id)
-        cloud_path = '/'.join(clouds_path.split('/')[:-1])+'/cloud'+cloud_name+'.txt'
-        cloud_params = dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)])
-        cloud = (cloud_name, cloud_params)
-        run_simulation((run_params, cloud))
+def simple_main(clouds_path, config_path="configs/params_cloudct.yaml"):
+    run_params = load_run_params(params_path=config_path)
+    clouds_to_run = get_clouds2run(clouds_path)
+    
+    # Run the simulations in parallel
+    if not clouds_to_run:
+        print("No clouds to process in this range. Exiting.")
+    else:
+       
+        for cloud_path in clouds_to_run:
+            print(cloud_path)
+            cloud_name = str(extract_index(cloud_path))
+            cloud_params = dict([('path', cloud_path)])
+            cloud = (cloud_name, cloud_params)
+            run_simulation((run_params, cloud))
 
     print('done')
 
 def run_simulation(args):
     run_params, (cloud_name, cloud_params) = args
-    print(f"Simulation of cloud {cloud_name} is running.")
-   
+    print(f"Simulation of cloud {cloud_name} is running on PID {os.getpid()}.")
+
     user =  run_params['USER']
     if user == 'Vadim':
-        run_params['images_path_for_nn'] = '/wdata_visl/tamar_nadav_generated_clouds/2026/Vadim_tune_AT3D_research/up_circular_data_rando/'        
+        if run_params['formation_mode'] == 'SOP':
+            run_params['images_path_for_nn'] = '/wdata_visl/tamar_nadav_generated_clouds/2026/Vadim_tune_AT3D_research/up_sop_data_rando/'                    
+        else:
+            run_params['images_path_for_nn'] = '/wdata_visl/tamar_nadav_generated_clouds/2026/Vadim_tune_AT3D_research/up_circular_data_rando/'        
     else:
         pass
     
@@ -299,9 +351,24 @@ def run_simulation(args):
         print(20 * "-")
 
        
-        d_omega = calculate_delta_omega(run_params['R_max'], run_params['R_earth'], run_params['R_sat'])
-        print(f"Delta Omega: {d_omega:.4f} rad ({np.degrees(d_omega):.2f} degrees)")
-        sat_positions = sample_camera_locations_randomized(run_params['SATS_NUMBER'], run_params['R_sat'], run_params['R_earth'], d_omega)
+        if run_params['formation_mode'] == 'SOP': # String of pearls
+            DX_LIMIT = run_params['SAT_PERTURBATION_DX']
+            DY_LIMIT = run_params['SAT_PERTURBATION_DX']
+            DZ_LIMIT = run_params['SAT_PERTURBATION_DX']
+        
+            sat_positions, near_nadir_indices, theta_max, theta_min = \
+                CreateVaryingStringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
+                                            ORBIT_ALTITUDE=run_params['R_sat'],
+                                            move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+                                            move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1],
+                                            DX=DX_LIMIT, DY=DY_LIMIT, DZ=DZ_LIMIT,
+                                            N=1)
+            
+        else: # Satellites in a circle mode
+            d_omega = calculate_delta_omega(run_params['R_max'], run_params['R_earth'], run_params['R_sat'])
+            print(f"Delta Omega: {d_omega:.4f} rad ({np.degrees(d_omega):.2f} degrees)")
+            sat_positions = sample_camera_locations_randomized(run_params['SATS_NUMBER'], run_params['R_sat'], run_params['R_earth'], d_omega)
+        
         up_list = np.array(sat_positions.shape[1] * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
         
  
@@ -570,7 +637,7 @@ if __name__ == '__main__':
     config_path = "configs/params_cloudct.yaml"  # Default to CloudCT config    
     run_params = load_run_params(params_path=config_path)
     
-    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds"
     # "/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt" - CASS 
    
     # "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
@@ -583,4 +650,4 @@ if __name__ == '__main__':
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
 
     #main(clouds_path, config_path)
-    simple_main(run_params, clouds_path)
+    simple_main(clouds_path, config_path)

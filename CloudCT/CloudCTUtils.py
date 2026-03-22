@@ -30,7 +30,7 @@ def calculate_zenith_angles(coords, R_earth):
     """Compute zenith angle (deg) from vertical for each position; coords (x,y,z) in km, z relative to surface."""
     x = coords[:, 0]
     y = coords[:, 1]
-    z_center = coords[:, 2] + R_earth
+    z_center = coords[:, 2]# + R_earth
 
     magnitudes = np.sqrt(x**2 + y**2 + z_center**2)
     cos_theta = z_center / magnitudes

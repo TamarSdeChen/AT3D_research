@@ -5,7 +5,7 @@ IF_NEW_TXT: False
 n_jobs: 4
 maxiter: 150
 stokes: 'I'
-max_simultaneous_simulations: 1  # how many clouds running in parallel
+max_simultaneous_simulations: 5  # how many clouds running in parallel
 IS_SUN_CONST: 1
 cancel_noise: False
 plot_simulation_images: False  # if True, plot one figure for all clean images and one for all noise images
@@ -37,10 +37,19 @@ R_sat: 500  # km
 R_max: 700
 R_earth: 6371
 SATS_NUMBER: 10
+formation_mode: 'SOP' # SOP = String of pearls configuration, otherwise use 'CIRCLE'
+# SAT_PERTURBATION_DX - perturbation limit in X axis (perturbation allowed between +-DX from sat location)
+# _DY - perturbation limit in Y axis (perturbation allowed between +-DY from sat location)
+# _DZ - perturbation limit in Z axis (perturbation allowed between +-DZ from sat location)
+# Currently, these parameters valide ony for String of pearls configuration.
+SAT_PERTURBATION_DX: 50
+SAT_PERTURBATION_DY: 100
+SAT_PERTURBATION_DZ: 10
+
 
 GSD: 0.02  # in km, it is the ground spatial resolution
-const_sun_azimuth: 45
-const_sun_zenith: 150
+const_sun_azimuth: 0 # 45
+const_sun_zenith: 158 # 150
 tune_scalar: 1.5
 temperature: 288.15  # 15 degrees Celsius
 
