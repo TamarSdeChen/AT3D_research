@@ -21,7 +21,9 @@ import random
 import matplotlib
 # matplotlib.use('TkAgg')
 import itertools
-
+from dataclasses import dataclass
+import xarray as xr
+import netCDF4 as nc
 
 
 import numpy as np
@@ -2056,6 +2058,61 @@ def visualize_rotation(sat_positions_before, sat_positions_after, lookat, rotati
     plt.close(fig)
     print(f"Rotation visualization saved to: {save_path_with_timestamp}")
 
+# ==========================================
+# 1. IO Functions (Save / Load)
+# ==========================================
+def save_sensor_list(file_name, sensor_list):
+    if not isinstance(sensor_list, list):
+        raise TypeError("`sensor_list` must be a standard Python list.")
+
+    initial_file_name = file_name
+    base_name, ext = os.path.splitext(initial_file_name)
+    counter = 1
+    
+    while os.path.exists(file_name):
+        file_name = f"{base_name}_{counter}{ext}"
+        counter += 1
+
+    if file_name != initial_file_name:
+        warnings.warn(f"Saving to alternate file: '{file_name}'", category=RuntimeWarning)
+
+    save_file = nc.Dataset(file_name, 'w')
+    save_file.close()
+
+    for i, image in enumerate(sensor_list):
+        group_path = f"sensor_list/{i}"
+        image.to_netcdf(file_name, mode='a', group=group_path)
+
+    print(f" -> Successfully saved {len(sensor_list)} sensors to '{file_name}'")
+    return file_name
+
+
+def load_sensor_list(file_name):
+    dataset = nc.Dataset(file_name)
+
+    if 'sensor_list' not in dataset.groups:
+        raise KeyError(f"No 'sensor_list' group found in {file_name}")
+
+    list_group = dataset.groups['sensor_list'].groups
+    loaded_list = []
+
+    indices = sorted([int(k) for k in list_group.keys()])
+
+    for i in indices:
+        sensor_dataset = xr.open_dataset(
+            xr.backends.NetCDF4DataStore(dataset[f'sensor_list/{i}'])
+        )
+        
+        # Restore boolean types
+        if 'stokes' in sensor_dataset:
+            sensor_dataset['stokes'] = (['stokes_index'], sensor_dataset['stokes'].data.astype(bool))
+        if 'use_subpixel_rays' in sensor_dataset:
+            sensor_dataset['use_subpixel_rays'] = sensor_dataset['use_subpixel_rays'].data.astype(bool)
+            
+        loaded_list.append(sensor_dataset)
+
+    print(f" -> Successfully loaded {len(loaded_list)} sensors from '{file_name}'")
+    return loaded_list
 
 def main():
 

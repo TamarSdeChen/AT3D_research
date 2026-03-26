@@ -2,7 +2,7 @@
 # Base parameters
 USER: 'Vadim' # or Tamar :)
 IF_NEW_TXT: False
-n_jobs: 4
+n_jobs: 10
 maxiter: 150
 stokes: 'I'
 max_simultaneous_simulations: 5  # how many clouds running in parallel
@@ -28,7 +28,9 @@ ocean_wind_speed: 5
 # CloudCT-specific parameters
 
 wavelengths: [[0.620, 0.670]]
+# used by Enbal - radiance_thresholds: [0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255]  # SATS_NUMBER * [0.0255]
 radiance_thresholds: [0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255, 0.0255]  # SATS_NUMBER * [0.0255]
+# since we now simulate    sunglint and ocean with BRDF, the backgroud outside the glint is lowwer than in lambertian case.
 images_path_for_nn: '/wdata/tamarsd/NN_Data/circular_data_rando/'
 #'/wdata/tamarsd/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D_no_rotation_50_wavelength/'
 #images_path_for_nn: '/wdata_visl/tamar_nadav_generated_clouds/2026/tamar_tune_AT3D_research/'
