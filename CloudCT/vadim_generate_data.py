@@ -114,7 +114,7 @@ def run_simulation(args):
     user =  run_params['USER']
     if user == 'Vadim':
         if run_params['formation_mode'] == 'SOP':
-            run_params['images_path_for_nn'] = '/wdata_visl/tamar_nadav_generated_clouds/2026/Vadim_tune_AT3D_research/up_sop_data_rando/'                    
+            run_params['images_path_for_nn'] = '/wdata_visl/tamarsd/NN_Data/vadim_runs/up_sop_data_rando/'                    
         else:
             run_params['images_path_for_nn'] = '/wdata_visl/tamar_nadav_generated_clouds/2026/Vadim_tune_AT3D_research/up_circular_data_rando/'        
     else:
@@ -146,8 +146,9 @@ def run_simulation(args):
     
     filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
                             'cloud_results_' + cloud_name + '.pkl')
+    filename_nc = filename.replace('.pkl', '.nc')
 
-    if os.path.exists(filename):
+    if os.path.exists(filename) and os.path.exists(filename_nc):
         print(f'skipping cloud in {filename}')
         return
     
@@ -236,7 +237,8 @@ def run_simulation(args):
     n_nonzero = np.count_nonzero(only_coud_extinction)
     if n_nonzero < 10:
         print(f'Skipping cloud {cloud_name}: only {n_nonzero} non-zero extinction voxels (< 200).')
-        return
+        # return
+        pass
 
     # if run_params.get('plot_mip', False):
     #     mip_dir = run_params.get('plot_mip_path')
@@ -399,7 +401,7 @@ def run_simulation(args):
         # Next part will be the rendering, when the RTE solver is prepared (below).
         # get the measurements
         sensor_dict.get_measurements(solvers_dict, n_jobs=run_params['n_jobs'], verbose=True) # RTE + RENDERING
-        show_results(sensor_dict)
+        #show_results(sensor_dict)
         print('Done getting CloudCT''s measurments')
 
         if not run_params['cancel_noise']:
@@ -443,7 +445,10 @@ def run_simulation(args):
             plot_camera_positions_projections(sat_positions, run_params, save_path=proj_vis_path, lookat=LOOKAT)
 
         # ----------------------------------------------------
-
+        # ----------------------------------------------------
+        # ----------------------------------------------------
+        
+        # start the mess to prepare the space carving:
         sensor_list = []
         # images = []
         ray_mu_list = []
@@ -506,7 +511,7 @@ def run_simulation(args):
             cloud['cameras_P'] = (np.array(projection_matrices))
             cloud['grid'] = (grid)
             
-    
+            
 
 
     if not os.path.exists(os.path.join(run_params['images_path_for_nn'], path_stamp)):
@@ -518,6 +523,7 @@ def run_simulation(args):
     with open(filename, 'wb') as outfile:
         pickle.dump(cloud, outfile, protocol=pickle.HIGHEST_PROTOCOL)
 
+    save_sensor_list(filename_nc, sensor_list)
     print("--------------")
 
 
@@ -628,6 +634,8 @@ def load_run_params(params_path):
         run_params = yaml.full_load(f)
 
     return run_params
+
+
 
 
 if __name__ == '__main__':
