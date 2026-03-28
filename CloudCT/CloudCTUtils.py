@@ -6,6 +6,8 @@ import at3d
 import matplotlib.pyplot as plt
 # import mayavi.mlab as mlab
 import os
+from skimage import filters, morphology
+from scipy import ndimage
 import logging
 from collections import OrderedDict
 import xarray as xr
@@ -27,6 +29,296 @@ import netCDF4 as nc
 
 
 import numpy as np
+
+def selective_space_carving(
+    data,
+    loaded_sensor_list, # the new saved sensor lits only used for dymanic space carving.
+    run_params,
+    threshold_scalar=0.6, # Scale the treshold loaded from the ran params file
+    active_treshold_views_number = 5, # less than this number, the space carving considered as failure
+    atmosphere_path='../data/ancillary/AFGL_summer_mid_lat.nc',
+    user_excluded_views=None, 
+    drop_glint_views=False,
+    use_tamar_2d_masks=False, # True - if Tamar prefer to use the original (saved) masks, and so the space carving.
+    n_jobs=40
+):
+    """
+    A fully self-contained pipeline: Builds the RTE grid, configures the solver, 
+    simulates ocean reference images, extracts dynamic masks, filters views, 
+    and performs 3D space carving.
+    
+    How drop_glint_views handles it:
+    If False (The Soft Approach):
+     * The glinted camera stays in the active_sensors list and is handed to the AT3D space carver.
+     * To prevent this blinded camera from ruining the 3D reconstruction, the code mathematically lowers the agreement threshold.
+     * It basically tells AT3D: "I know 4 of my 10 cameras are blinded by the sun. Don't worry about them. As long as the remaining 6 clean cameras agree there is a cloud here, keep the 3D voxel."
+    If True (The Hard Approach):
+     * The glinted camera is completely erased from the active_sensors list.
+     * The AT3D space carver never even knows that camera existed. It runs the carving algorithm using only the clean cameras (e.g., carving with 6 total cameras instead of 10).
+     * The agreement threshold is calculated purely based on those 6 perfect views.
+    Which one should you use?
+     * Set it to True if you want maximum safety. It guarantees that noisy, glint-corrupted data never touches your 3D space carver, resulting in much cleaner cloud shapes.
+     * Set it to False - I don't know why and when.
+
+    """
+    if user_excluded_views is None:
+        user_excluded_views = []
+        
+    """
+    When AT3D saves the raw sensor data to a NetCDF file, it flattens
+    the 2D image grid into a single 1D array of pixels.
+    So each loaded_sensor_list[i]['I'].data is 1D flaten image.
+    To reconstruct the image, you simply need to pull the 1D array of Stokes values
+    (like 'I') and use NumPy to reshape it back into a 2D grid using those resolution attributes.
+    """
+    
+    images_rte_simulated = np.array(data['images_noise'])
+
+    
+    print("\n>>> [1/5] Building RTE Grid and Setup...")
+    # 1. Extract Grid from data
+    grid = data['grid']
+    xgrid = np.float32(grid[0])
+    dx = xgrid[1] - xgrid[0]
+    ygrid = np.float32(grid[1])
+    dy = ygrid[1] - ygrid[0]
+    zgrid = np.float32(grid[2][:-2])
+    dz = zgrid[1] - zgrid[0]
+    
+    rte_grid = at3d.grid.make_grid(dx, xgrid.size, dy, ygrid.size, zgrid)
+    sensor_name='CloudCT dymanic masks'
+
+    if use_tamar_2d_masks:
+        # Reshape it back into a 2D array
+        print("The space carving will use Tamar's 2d masks")
+        # while the measurments are images_rte_simulated
+    else: # use mask extraction as Vadim implemented:
+        
+        print(">>> [2/5] Configuring and Solving Ocean/Rayleigh Reference Model...")
+        # 2. Setup Atmosphere and Solvers
+        atmosphere = xr.open_dataset(atmosphere_path)
+        
+        wavelength_bands = run_params['wavelengths']
+        mean_wavelengths = [np.mean(wb) for wb in wavelength_bands]
+        
+        rayleigh_scattering = at3d.rayleigh.to_grid(mean_wavelengths, atmosphere, rte_grid)
+        solvers_dict = at3d.containers.SolversDict()
+        
+        sun_azimuth = run_params['const_sun_azimuth']
+        sun_zenith = run_params['const_sun_zenith']
+        ocean_wind_speed = run_params.get('ocean_wind_speed', 5.0)
+        
+        for wavelength in mean_wavelengths:
+            medium = {'rayleigh': rayleigh_scattering[wavelength]}
+            
+            config = at3d.configuration.get_config()
+            config['num_mu_bins'] = 8
+            config['num_phi_bins'] = 16
+            config['split_accuracies'] = 0.1
+            config['max_total_mb'] = 100000
+            config['spherical_harmonics_accuracy'] = 0.01
+            config['num_sh_term_factor'] = 5
+            config['high_order_radiance'] = True
+            
+            surface_model = at3d.surface.ocean_unpolarized(ocean_wind_speed, 0.1)
+            
+            solvers_dict.add_solver(
+                wavelength,
+                at3d.solver.RTE(
+                    numerical_params=config,
+                    surface=surface_model,
+                    source=at3d.source.solar(wavelength, np.cos(sun_zenith * np.pi / 180), sun_azimuth),
+                    medium=medium,
+                    num_stokes=1
+                )
+            )
+            
+        solvers_dict.solve(n_jobs=n_jobs, maxiter=run_params.get('maxiter', 150))
+    
+        print(">>> [3/5] Simulating Sensor Measurements (Rendering)...")
+        # 3. Calculate Reference Images
+        # Converts a Python list of AT3D xarray datasets back into a formal SensorsDict.
+        # Loop through your list and add them one by one
+        ##### define sensors #####
+        GSD = run_params['GSD']  # km
+        SATS_NUMBER_SETUP = run_params['SATS_NUMBER']
+        sensor_dict = at3d.containers.SensorsDict()
+        
+        for image_dataset in loaded_sensor_list:
+            sensor_dict.add_sensor(sensor_name, image_dataset)
+        # render reference images
+        
+        sensor_dict.get_measurements(solvers_dict, n_jobs=n_jobs, verbose=False)
+        ocean_reference_images = sensor_dict.get_images(sensor_name)
+        loaded_sensor_list = sensor_dict[sensor_name]['sensor_list']
+    
+    #-------------------------------------------
+    #-------------------------------------------
+    #-------------------------------------------
+    #-------------------------------------------
+    
+    # Trackers
+    glint_view_indices = []
+    valid_view_indices = []
+    failed_view_indices = []
+    
+    final_sensor_dict = at3d.containers.SensorsDict()
+    
+    print(">>> [4/5] Extracting Dynamic Masks & Evaluating Glint...")
+    # 4. Extract Masks
+    for i, sensor in enumerate(loaded_sensor_list):
+        if i in user_excluded_views:
+            print(f"  View {i}: Skipped (User Excluded)")
+            sensor['cloud_mask'] = ('nrays', np.zeros(sensor['I'].size, dtype=np.int64))
+            continue
+        
+            
+        nx, ny = int(sensor.attrs['x_resolution']), int(sensor.attrs['y_resolution'])
+        cloudy_image_2d = images_rte_simulated[i] # consistent with sensor['I'].data.reshape((nx, ny), order='F'), but included noise
+        
+        if use_tamar_2d_masks:
+            # Reshape it back into a 2D array
+            mask_2d = loaded_sensor_list[i]['cloud_mask'].data.reshape((nx, ny), order='F')
+            is_valid = True
+            
+        else:    
+            ref_image_2d = ocean_reference_images[i]['I'].data 
+            
+            scaled_reference = 0.95 * ref_image_2d
+            current_threshold = threshold_scalar * run_params['radiance_thresholds'][i]
+            
+            mask_2d, _, is_valid = extract_mask_from_reference(
+                cloudy_image=cloudy_image_2d, 
+                reference_image=scaled_reference, 
+                absolute_threshold=current_threshold, 
+                max_cloud_fraction=0.85, 
+                min_contrast_ratio=1.5
+            )
+        
+        if not is_valid:
+            print(f"  View {i}: Mask failed or cloud too small.")
+            failed_view_indices.append(i)
+        else:
+            if use_tamar_2d_masks:
+                print(f"  View {i}: Valid mask (Clear view).")
+            else:
+                mean_glint = np.mean(ref_image_2d)
+                if mean_glint > 0.02:
+                    print(f"  View {i}: Valid mask, but heavily glinted (Mean glint: {mean_glint:.3f}).")
+                    glint_view_indices.append(i)
+                    if drop_glint_views:
+                        print(f"  We drop the view since drop_glint_views = {drop_glint_views}")
+                        continue
+                else:
+                    print(f"  View {i}: Valid mask (Clear view).")
+            valid_view_indices.append(i)
+            final_sensor_dict.add_sensor(sensor_name, sensor)
+            sensor['cloud_mask'] = ('nrays', mask_2d.flatten(order='F'))            
+
+     
+    num_active = len(final_sensor_dict[sensor_name]['sensor_list'])
+    
+    print(f"\n--- Space Carving Summary ---")
+    print(f"Total cameras: {len(loaded_sensor_list)}")
+    print(f"User excluded: {user_excluded_views}")
+    print(f"Failed masks : {failed_view_indices}")
+    print(f"Glint views  : {glint_view_indices}")
+    print(f"Active for carving: {num_active}")
+
+    stats = {
+        'glint_indices': glint_view_indices,
+        'valid_indices': valid_view_indices,
+        'failed_indices': failed_view_indices,
+        'active_count': num_active
+    }
+
+    if num_active <= active_treshold_views_number:
+        print(f"\nWARNING: Only {num_active} views available. Aborting space carving.")
+        return None, stats
+
+    if len(glint_view_indices) > 4 and not drop_glint_views:
+        agreement = max((num_active - 4 - 1), 3) / len(loaded_sensor_list)
+    else:
+        agreement = 1
+        if use_tamar_2d_masks:
+            agreement = 0.8
+        
+    print(f">>> [5/5] Executing AT3D Space Carving (Agreement: {agreement:.2f})...")
+    space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
+    
+    carved_volume = space_carver.carve(
+        final_sensor_dict[sensor_name]['sensor_list'], 
+        agreement=(0.0, agreement), 
+        linear_mode=False
+    )
+    
+    raw_mask = carved_volume.mask.data
+    npad = ((1, 1), (1, 1), (1, 1))
+    mask_data_padded = np.pad(raw_mask.copy(), pad_width=npad, mode='constant', constant_values=0)
+    
+    struct = ndimage.generate_binary_structure(3, 2)
+    mask_morph_padded = ndimage.binary_closing((mask_data_padded > 0), struct)
+    mask_morph = mask_morph_padded[1:-1, 1:-1, 1:-1]
+
+    print("SUCCESS: Space carving completed.")
+    return raw_mask, stats
+
+def extract_mask_from_reference(cloudy_image, reference_image, absolute_threshold,\
+                                max_cloud_fraction=0.85, min_contrast_ratio=1.5):
+    """
+    Subtracts a reference background, applies a user-defined absolute threshold, 
+    extracts a cloud mask, and validates against glint blowout.
+    """
+    # 1. Subtraction and Shadow Clipping
+    corrected_image = cloudy_image - reference_image
+    clipped_image = np.clip(corrected_image, 0, None)
+    
+    # Safety check: If the image is completely blank after clipping
+    if np.max(clipped_image) < 1e-6:
+        return np.zeros_like(clipped_image, dtype=bool), clipped_image, False
+        
+    # 2. Apply your Explicit Radiance Threshold!
+    # This creates a boolean array (True where image > threshold, False otherwise)
+    raw_mask = clipped_image > absolute_threshold
+    
+    # Clean up tiny noise pixels (adjust min_size based on your grid resolution)
+    clean_mask = morphology.remove_small_objects(raw_mask, min_size=5)
+    
+    # Safety check: If the mask is empty after cleanup
+    if np.sum(clean_mask) == 0:
+        return np.zeros_like(clipped_image, dtype=bool), clipped_image, False
+
+    # 3. Validation Metrics
+    cloud_fraction = np.sum(clean_mask) / clean_mask.size
+    
+    # Calculate contrast using the ORIGINAL cloudy image 
+    cloud_mean_brightness = np.mean(cloudy_image[clean_mask])
+    background_mean_brightness = np.mean(cloudy_image[~clean_mask])
+    
+    if background_mean_brightness < 1e-4:
+        background_mean_brightness = 1e-4 
+        
+    contrast_ratio = cloud_mean_brightness / background_mean_brightness
+    
+    # 4. Warning Logic
+    is_valid_cloud = True
+    warning_msg = ""
+    
+    if cloud_fraction > max_cloud_fraction:
+        is_valid_cloud = False
+        warning_msg = f"WARNING: Mask covers {cloud_fraction*100:.1f}% of image. Glint likely dominates."
+    elif contrast_ratio < min_contrast_ratio:
+        is_valid_cloud = False
+        warning_msg = f"WARNING: Low contrast (Ratio: {contrast_ratio:.2f}). Cloud brightness is below/near glint reflection."
+
+    if not is_valid_cloud:
+        print(warning_msg)
+        return np.zeros_like(clipped_image, dtype=bool), clipped_image, False
+
+    return clean_mask, clipped_image, True
+
+
+
 
 def calculate_zenith_angles(coords, R_earth):
     """Compute zenith angle (deg) from vertical for each position; coords (x,y,z) in km, z relative to surface."""
